@@ -69,7 +69,7 @@ int main(int argc, char *argv[]) {
     for (int i = 0; i < size; i++) {
         for (int j = 0; j < sendvectors[i].size() && index < sendbuffersize; j++, index++) { 
             sb[index] = sendvectors[i][j];
-            printf("myid=%d,send to id=%d, data[%d]=%d\n",rank,i,j,sb[index].id);
+            //printf("myid=%d,send to id=%d, data[%d]=%d\n",rank,i,j,sb[index].id);
         }
     }
 
@@ -78,16 +78,15 @@ int main(int argc, char *argv[]) {
             MPI_COMM_WORLD);
 
     /*处理从别的节点传过来的数据(邻居节点), 并更新本地数据*/
+    cout << "Process " << rank << " recv: ";
     for ( i=0 ; i < size ; i++ ) {
+        cout << "(P" << i << ")->";
         for (j = 0; j < recvcounts[i]; j++) {
-            printf("myid=%d,recv from id=%d, data[%d]=%d\n",rank,i,j,rb[rdispls[i] + j].id);
+            cout << rb[rdispls[i] + j].id << ", ";
         }
+        cout << ";\t";
     }
-    printf("////////////////////////////////////////////\n");
-    cout << "Process " << rank << " recvs: ";
-    for (int i = 0; i < accumulate(recvcounts, recvcounts + size, 0); i++)
-        cout << rb[i].id << "\t";
-    cout << endl;
+    cout << "\n";
 
     free(sb); free(rb);
     MPI_Finalize();

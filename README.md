@@ -18,7 +18,6 @@
 ```
 void map(Vertex &v, std::list<KV> &kvs){
     int neighbor_count = 0;
-
     while(v.neighbors[neighbor_count] != 0)neighbor_count++;
     float value = v.value / neighbor_count;
     for (int i = 0; i < neighbor_count; i++)

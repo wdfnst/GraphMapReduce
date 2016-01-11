@@ -1,1 +1,1 @@
-#GraphMapReduce
+#GraphMapReduce: 基于MapReduce的编程模型的图计算框架

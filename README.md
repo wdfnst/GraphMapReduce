@@ -8,7 +8,7 @@
 
 ### 例子
 1. 如下图所示：
-![输入图片说明](http://git.oschina.net/uploads/images/2016/0111/165339_b54bd86a_496314.png "在这里输入图片标题")
+![输入图片说明](http://git.oschina.net/uploads/images/2016/0111/165752_c1b26e30_496314.png "在这里输入图片标题")
 2. 迭代过程
 - 每个子图现将自己的边界顶点发送给其所连接的邻居节点；
 - 在每个计算节点的内部，将每个顶点<id, loc, [neighbors], value>映射为若干键值对:

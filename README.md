@@ -1,6 +1,6 @@
 #GraphMapReduce: 基于MapReduce的编程模型的图计算框架
 
-(名词约束: 顶点-图中顶点;节点-计算单元节点)
+(名词约束: 顶点Vertex-图中顶点;节点Process-计算单元节点)
 ### 框架的基础
 1. MPI
 2. MapReduce编程模型

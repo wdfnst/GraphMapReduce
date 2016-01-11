@@ -28,11 +28,8 @@ void map(Vertex &v, std::list<KV> &kvs){
 - 根据键值，对键值相同的键值组执行reduce函数
 ```
 KV reduce(std::list<KV> &kvs) {
-
     float sum = 0.0;
-
     for (auto kv : kvs) {
-
         sum += kv.value;
     }
     /*Pagerank=a*(p1+p2+…Pm)+(1-a)*1/n，其中m是指向网页j的网页j数，n所有网页数*/

@@ -16,6 +16,7 @@
 - 在每个计算节点的内部，将每个顶点<id, loc, [neighbors]执行map函数, value>映射为若干键值对:
           > {key, value1},其中key in [neighbors], value1 = value / neighbors.size()
 ```
+
 void map(Vertex &v, std::list<KV> &kvs){
     int neighbor_count = 0;
     while(v.neighbors[neighbor_count] != 0)neighbor_count++;

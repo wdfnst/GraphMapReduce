@@ -2,17 +2,20 @@
 
 (名词约束: 顶点Vertex-图中顶点;节点Process-计算单元节点)
 ### 框架的基础
-1. MPI
+1. MPI:
+结算节点之间通信通过MPI实现；
 2. MapReduce编程模型
-3. 图划分
+3. 图划分:
+为了将整图的不同部分放到不同的计算节点进行并行计算，首先将整划分为若干子图，本框架中每个子图包含三个部分{inners, borders, neighbors}, inners表示子图内与其他子图没有连接的顶点；borders表示子图内与其他子图又连接的顶点；neighbors表示子图外与本子图连接的顶点。
 
 ### 例子
 1. 如下图所示：
-   为了将整图的不同部分放到不同的计算节点进行并行计算，首先将整划分为若干子图，本框架中每个子图包含三个部分{inners, borders, neighbors}, inners表示子图内与其他子图没有连接的顶点；borders表示子图内与其他子图又连接的顶点；neighbors表示子图外与本子图连接的顶点。
 
+   简单图，划分之后，包含三个子图，每个子图中包含的顶点如图所示.
 ![输入图片说明](http://git.oschina.net/uploads/images/2016/0111/165752_c1b26e30_496314.png "简单图划分示意图")
 
 2. 迭代过程
+
 - 每个子图现将自己的边界顶点发送给其所连接的邻居节点；
 - 在每个计算节点的内部，将每个顶点<id, loc, [neighbors]执行map函数, value>映射为若干键值对:
           > {key, value1},其中key in [neighbors], value1 = value / neighbors.size()

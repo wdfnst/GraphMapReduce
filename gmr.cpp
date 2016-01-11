@@ -10,7 +10,7 @@
 #include <string.h> 
 #include <errno.h> 
 #include "mpi.h"
-#include "header1.h"
+#include "gmr.h"
 
 using namespace std;
 

@@ -45,7 +45,7 @@ void map(Vertex &v, std::list<KV> &kvs){
 ```
 - 在每个节点内将map生成的键值对按键值进行排序
 - 根据键值，对键值相同的键值组执行reduce函数
-```
+```c++
 KV reduce(std::list<KV> &kvs) {
  
    float sum = 0.0;

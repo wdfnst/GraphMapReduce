@@ -37,6 +37,7 @@ Vertex graph[12] = {{}, {1, 0, {2, 3, 4, 5, 10}, 1.0}, {2, 1, {1, 3, 6, 7}, 1.0}
 void map(Vertex &v, std::list<KV> &kvs){
     int neighbor_count = 0;
     while(v.neighbors[neighbor_count] != 0)neighbor_count++;
+
     float value = v.value / neighbor_count;
     for (int i = 0; i < neighbor_count; i++)
         kvs.push_back({v.neighbors[i], value});
@@ -50,6 +51,7 @@ KV reduce(std::list<KV> &kvs) {
     for (auto kv : kvs) {
         sum += kv.value;
     }
+
     /*Pagerank=a*(p1+p2+…Pm)+(1-a)*1/n，其中m是指向网页j的网页j数，n所有网页数*/
     sum = 0.5 * sum + (1 - 0.5) / (sizeof(vs) / sizeof(Vertex) - 1); 
     return {kvs.front().key, sum};

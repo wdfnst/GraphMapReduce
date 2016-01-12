@@ -33,11 +33,10 @@ Vertex graph[12] = {{}, {1, 0, {2, 3, 4, 5, 10}, 1.0}, {2, 1, {1, 3, 6, 7}, 1.0}
 - 每个子图现将自己的边界顶点发送给其所连接的邻居节点，采用MPI_Alltoall()实现；
 - 在每个计算节点的内部，将每个顶点<id, loc, [neighbors]执行map函数, value>映射为若干键值对:
           > {key, value1},其中key in [neighbors], value1 = value / neighbors.size()
-```
+```c++
 void map(Vertex &v, std::list<KV> &kvs){
     int neighbor_count = 0;
     while(v.neighbors[neighbor_count] != 0)neighbor_count++;
-
     float value = v.value / neighbor_count;
     for (int i = 0; i < neighbor_count; i++)
         kvs.push_back({v.neighbors[i], value});
@@ -47,7 +46,6 @@ void map(Vertex &v, std::list<KV> &kvs){
 - 根据键值，对键值相同的键值组执行reduce函数
 ```c++
 KV reduce(std::list<KV> &kvs) {
- 
    float sum = 0.0;
     for (auto kv : kvs) {
         sum += kv.value;

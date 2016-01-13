@@ -144,7 +144,6 @@ void computing(int rank, SubGraph &sg) {
     kvs.sort([](KV &kv1, KV &kv2){return kv1.key < kv2.key;});
 
     std::list<KV> sameKeylist;
-    int currentKey = -1;
     for (KV kv : kvs) {
         if(sameKeylist.size() > 0 && kv.key != sameKeylist.front().key) {
             KV tmpKV = reduce(sameKeylist);

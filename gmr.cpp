@@ -30,8 +30,8 @@ int main(int argc, char *argv[]) {
     if (rank == 0)
         displaySubgraphs();
 
-    int endflag = 0;
-    while(!endflag){
+    int endflag = 1;
+    while(endflag){
         int sendcounts[process] = {0}, recvcounts[process] = {0}; 
         int sdispls[process] = {0}, rdispls[process] = {0};
         vector<vector<Vertex>> sendvectors(size);
@@ -112,6 +112,7 @@ int main(int argc, char *argv[]) {
         int *rbuf = (int *)malloc(size * sizeof(int));
         MPI_Allgather(&iterationCompleted, 1, MPI_INT, rbuf, 1, MPI_INT, MPI_COMM_WORLD);
         endflag = accumulate(rbuf, rbuf + size, 0);
+        cout << "=============endflag:" << endflag << endl;
     }
     MPI_Finalize();
 }

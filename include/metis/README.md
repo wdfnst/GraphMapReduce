@@ -118,7 +118,9 @@ void WriteSubgraph(graph_t *graph, char *fname, idx_t *part, idx_t nparts)
 #### 三、输入、执行和结果
 1. 输入：输入文件格式说明
 测试图文件位于: include/metis/graphs
+
 > 4elt.graph    README        copter2.graph mdual.graph   metis.mesh    test.mgraph
+
 2. gpmetis的用法:
   > 注: 主要修改了gpmetis.c的代码，修改之后生成了gpmetis
 

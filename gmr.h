@@ -1,5 +1,9 @@
 #include "graph.h"
 
+/*迭代结束标志:0表示还有元素没有达到迭代结束条件, 默认表示都达到迭代结束条件*/
+int iterationCompleted = 0;
+float threshold = 0.0001;
+
 void map(Vertex &v, std::list<KV> &kvs){
     int neighbor_count = 0;
     while(v.neighbors[neighbor_count] != 0)neighbor_count++;

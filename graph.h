@@ -3,6 +3,9 @@ struct Vertex {
     bool operator==(int key) {
         return this->id == key;
     }
+    bool operator<(int key) {
+        return id < key;
+    }
 };
 struct KV {
     int key; float value;
@@ -60,10 +63,6 @@ void define_new_type(MPI_Datatype* ctype)
     MPI_Type_commit(ctype);
 }
 
-
-/*迭代结束标志:0表示还有元素没有达到迭代结束条件, 默认表示都达到迭代结束条件*/
-int iterationCompleted = 0;
-float threshold = 0.0001;
 Vertex vs[12] = {{}, {1, 0, {2, 3, 4, 5, 10}, 1.0}, {2, 1, {1, 3, 6, 7}, 1.0}, 
                      {3, 2, {1, 2, 8, 9}, 1.0},
                      {4, 0, {1}, 1.0}, {5, 0, {1}, 1.0}, {6, 1, {2}, 1.0}, {7, 1, {2}, 1.0},

@@ -1,0 +1,6 @@
+/Users/chenhuan/Downloads/metis-5.1.0/GKlib/build/Darwin-x86_64/test/CMakeFiles/strings.dir
+/Users/chenhuan/Downloads/metis-5.1.0/GKlib/build/Darwin-x86_64/test/CMakeFiles/fis.dir
+/Users/chenhuan/Downloads/metis-5.1.0/GKlib/build/Darwin-x86_64/test/CMakeFiles/rw.dir
+/Users/chenhuan/Downloads/metis-5.1.0/GKlib/build/Darwin-x86_64/test/CMakeFiles/gkgraph.dir
+/Users/chenhuan/Downloads/metis-5.1.0/GKlib/build/Darwin-x86_64/test/CMakeFiles/gksort.dir
+/Users/chenhuan/Downloads/metis-5.1.0/GKlib/build/Darwin-x86_64/CMakeFiles/GKlib.dir

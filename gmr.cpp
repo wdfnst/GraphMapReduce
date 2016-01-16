@@ -9,6 +9,7 @@
 #include <stdio.h> 
 #include <string.h> 
 #include <errno.h> 
+#include <GKlib.h>
 #include "mpi.h"
 #include "gmr.h"
 
@@ -20,6 +21,8 @@ int main(int argc, char *argv[]) {
     int rank, size, i, j, iterNum = 0;
     Vertex *sb,*rb;
     MPI_Datatype Vertex_Type;
+    char subgraphfilename[256];
+    gk_graph_t *graph;
 
     MPI_Init(&argc,&argv);
     define_new_type(&Vertex_Type);
@@ -29,6 +32,10 @@ int main(int argc, char *argv[]) {
     partitionGraph();
     if (rank == 0)
         displaySubgraphs();
+
+    /* 读入子图subgraph-rank */
+    sprintf(subgraphfilename, "graph/4elt.graph.subgraph.%d", rank);
+    graph = gk_graph_Read("graph/4elt.graph.subgraph.3", GK_GRAPH_FMT_METIS, 1, 0, 0);
 
     int endflag = 1;
     while(endflag){

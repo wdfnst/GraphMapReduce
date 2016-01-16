@@ -5,7 +5,7 @@
    > IDXTYPEWIDTH = 32/64
 2. 主要修改了gpmetis.c和io.c
 gpmetis:
-```c
+```c++
 ...
  if (status != METIS_OK) {
     printf("\n***Metis returned with an error.\n");
@@ -15,10 +15,7 @@ gpmetis:
       /* Write the solution */
       gk_startcputimer(params->iotimer);
       WritePartition(params->filename, part, graph->nvtxs, params->nparts);
-      
-
-### WriteSubgraph(graph, params->filename, part, params->nparts);
-
+      WriteSubgraph(graph, params->filename, part, params->nparts);
       gk_stopcputimer(params->iotimer);
     }
 
@@ -26,8 +23,8 @@ gpmetis:
   }
 ...
 ```
-io.c： 添加了函数
-```c
+io.c： 添加了函数 void WriteSubgraph(graph_t *graph, char *fname, idx_t *part, idx_t nparts)
+```c++
 /*************************************************************************/
 /*! This function writes a graph into a file  */
 /*************************************************************************/

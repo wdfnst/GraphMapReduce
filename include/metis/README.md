@@ -112,8 +112,11 @@ void WriteSubgraph(graph_t *graph, char *fname, idx_t *part, idx_t nparts)
 
 ```
 
+
 #### 编译
+
 编译之后可执行文件位于build/
+
 #### 输入、执行和结果
   > 注: 主要修改了gpmetis.c的代码，修改之后生成了gpmetis，
 gpmetis的用法:

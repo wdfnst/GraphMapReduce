@@ -1,6 +1,6 @@
 # 切图功能
 
-#### 修改
+#### 一、修改
 1. 根据处理器的位数修改include/metis.h
    > IDXTYPEWIDTH = 32/64
 2. 主要修改了gpmetis.c和io.c
@@ -109,15 +109,13 @@ void WriteSubgraph(graph_t *graph, char *fname, idx_t *part, idx_t nparts)
       gk_fclose(fpout[i]);
   }
 }
-
 ```
 
-
-#### 编译
+#### 二、编译
 
 编译之后可执行文件位于build/
 
-#### 输入、执行和结果
+#### 三、输入、执行和结果
   > 注: 主要修改了gpmetis.c的代码，修改之后生成了gpmetis，
 gpmetis的用法:
   ```sh

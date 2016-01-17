@@ -88,6 +88,7 @@ int main(int argc, char *argv[]) {
         }
 
         /* 执行MPI_Alltoall 调用*/
+        /* TODO: 进行两轮alltoallv(). 第一次交换对方需要接收的数据空间大小, 第二次数据局 */
         MPI_Alltoallv(sb,sendcounts,sdispls,Vertex_Type,rb,recvcounts,rdispls,Vertex_Type, 
                 MPI_COMM_WORLD);
 

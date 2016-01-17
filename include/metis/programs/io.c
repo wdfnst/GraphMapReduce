@@ -572,11 +572,12 @@ void WriteGraph(graph_t *graph, char *filename)
 /*************************************************************************/
 void WriteSubgraph(graph_t *graph, char *fname, idx_t *part, idx_t nparts)
 {
-  idx_t i, j, nvtxs, ncon;
+  idx_t i, j, nvtxs, ncon, headerlen = 0;
   idx_t *xadj, *adjncy, *adjwgt, *vwgt, *vsize;
   int hasvwgt=0, hasewgt=0, hasvsize=0;
   FILE *fpout[nparts];
-  char filenames[nparts][MAXLINE];
+  char filenames[nparts][256];
+  idx_t sgsnvtxs[nparts], sgsnedges[nparts];
 
   nvtxs  = graph->nvtxs;
   ncon   = graph->ncon;
@@ -615,9 +616,12 @@ void WriteSubgraph(graph_t *graph, char *fname, idx_t *part, idx_t nparts)
   for (i = 0; i < nparts; i++) {
       sprintf(filenames[i], "%s.subgraph.%"PRIDX, fname, i);
       fpout[i] = gk_fopen(filenames[i], "w", __func__);
+      sgsnvtxs[i] = 0;
+      sgsnedges[i] = 0;
 
       /* write the header line */
-      fprintf(fpout[i], "%"PRIDX" %"PRIDX" %s", nvtxs, xadj[nvtxs]/2, "011");
+      /* TODO:下面的操作,统计出顶点和边数之后，再记录headerline */
+      headerlen = fprintf(fpout[i], "%"PRIDX" %"PRIDX" %s", nvtxs, xadj[nvtxs]/2, "011");
       if (hasvwgt || hasvsize || hasewgt) {
         fprintf(fpout[i], " %d%d%d", hasvsize, hasvwgt, hasewgt);
         if (hasvwgt)
@@ -628,6 +632,7 @@ void WriteSubgraph(graph_t *graph, char *fname, idx_t *part, idx_t nparts)
   /* write the rest of the graph */
   for (i=0; i<nvtxs; i++) {
     int sgindex = part[i];
+    sgsnvtxs[sgindex]++;
     fprintf(fpout[sgindex], "\n");
     if (hasvsize) 
       fprintf(fpout[sgindex], " %"PRIDX, vsize[i]);
@@ -642,12 +647,22 @@ void WriteSubgraph(graph_t *graph, char *fname, idx_t *part, idx_t nparts)
       fprintf(fpout[sgindex], " %"PRIDX, adjncy[j]+1);
       /* print the partition of the current neighbor belongs to*/
       fprintf(fpout[sgindex], " %"PRIDX, part[adjncy[j]]);
+      sgsnedges[sgindex]++;
       if (hasewgt)
         fprintf(fpout[sgindex], " %"PRIDX, adjwgt[j]);
     }
   }
 
+  char *header = (char*)malloc(headerlen);
   for (i = 0; i < nparts; i++) {
+      memset(header, ' ', headerlen);
+      size_t newheaderlen = sprintf(header, "%"PRIDX " %"PRIDX" 011", sgsnvtxs[i], sgsnedges[i] / 2);
+      if (headerlen - newheaderlen > 0)
+          memset(header + newheaderlen, ' ', headerlen - newheaderlen);
+      fseek(fpout[i], 0, SEEK_SET);
+      /*将子图的定点数sgsnvtxs[i],边数sgsnedges[i]写到文件第一行*/
+      fwrite(header, headerlen, 1, fpout[i]);
       gk_fclose(fpout[i]);
   }
+  free(header);
 }

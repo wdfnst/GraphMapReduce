@@ -4,3 +4,4 @@ gmr
 *.o
 */build/*
 ctags
+include/metis/build/

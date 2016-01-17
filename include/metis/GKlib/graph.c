@@ -110,7 +110,8 @@ gk_graph_t *gk_graph_Read(char *filename, int format, int isfewgts,
     if (nfields < 2)
       gk_errexit(SIGERR, "Header line must contain at least 2 integers (#vtxs and #edges).\n");
 
-    nedges *= 2;
+    /* 为了消除奇数条边(或有向图)产生的问题, 直接记录边的值*/
+    //nedges *= 2;
 
     if (fmt > 111)
       gk_errexit(SIGERR, "Cannot read this type of file format [fmt=%zu]!\n", fmt);

@@ -35,10 +35,14 @@ int main(int argc, char *argv[]) {
 
     /* 读入子图subgraph-rank */
     sprintf(subgraphfilename, "graph/4elt.graph.subgraph.%d", rank);
-    graph = gk_graph_Read("graph/4elt.graph.subgraph.3", GK_GRAPH_FMT_METIS, 1, 0, 0);
+    graph = gk_graph_Read(subgraphfilename, GK_GRAPH_FMT_METIS, 1, 0, 0);
+
+    printf("%d 节点和边数: %d %zd\n", rank, graph->nvtxs, graph->xadj[graph->nvtxs]/2);
+
 
     int endflag = 1;
     while(endflag){
+
         int sendcounts[process] = {0}, recvcounts[process] = {0}; 
         int sdispls[process] = {0}, rdispls[process] = {0};
         vector<vector<Vertex>> sendvectors(size);
@@ -120,7 +124,7 @@ int main(int argc, char *argv[]) {
         int *rbuf = (int *)malloc(size * sizeof(int));
         MPI_Allgather(&iterationCompleted, 1, MPI_INT, rbuf, 1, MPI_INT, MPI_COMM_WORLD);
         endflag = accumulate(rbuf, rbuf + size, 0);
-        cout << "=============endflag:" << endflag << endl;
     }
     MPI_Finalize();
+    gk_graph_Free(&graph);
 }

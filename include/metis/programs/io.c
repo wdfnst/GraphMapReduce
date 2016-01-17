@@ -620,7 +620,6 @@ void WriteSubgraph(graph_t *graph, char *fname, idx_t *part, idx_t nparts)
       sgsnedges[i] = 0;
 
       /* write the header line */
-      /* TODO:下面的操作,统计出顶点和边数之后，再记录headerline */
       headerlen = fprintf(fpout[i], "%"PRIDX" %"PRIDX" %s", nvtxs, xadj[nvtxs]/2, "011");
       if (hasvwgt || hasvsize || hasewgt) {
         fprintf(fpout[i], " %d%d%d", hasvsize, hasvwgt, hasewgt);
@@ -655,8 +654,12 @@ void WriteSubgraph(graph_t *graph, char *fname, idx_t *part, idx_t nparts)
 
   char *header = (char*)malloc(headerlen);
   for (i = 0; i < nparts; i++) {
+      /* 当子图中有连接到其他子图的边时, 其csr中记录的边数可能为奇数 */
+      /* 此时记录边数为实际边数nedges + 1 */
       memset(header, ' ', headerlen);
-      size_t newheaderlen = sprintf(header, "%"PRIDX " %"PRIDX" 011", sgsnvtxs[i], sgsnedges[i] / 2);
+      /* 为支持有向图, 直接在文件中写入边的条数而不除2 */
+      idx_t newheaderlen = sprintf(header, "%"PRIDX " %"PRIDX" 011", 
+              sgsnvtxs[i], sgsnedges[i]);
       if (headerlen - newheaderlen > 0)
           memset(header + newheaderlen, ' ', headerlen - newheaderlen);
       fseek(fpout[i], 0, SEEK_SET);

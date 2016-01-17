@@ -1,38 +1,76 @@
-################################################################################################################
-#
-#				通用Makefile模板
-#			自动将src目录下中的.c文件编译，生成所有.o文件保存在bin/objs下
-#			修改TARGETS和CC以及CFLAGS和LDFLAG即可完成工程的配置
-#				by jieen 		2013-4-27				
-#
-#################################################################################################################
-PROJECT_TOP_DIR=$(shell cd ../; pwd)
-PROJECT_BIN_DIR=$(PROJECT_TOP_DIR)/bin
-PROJECT_SRC_DIR=$(PROJECT_TOP_DIR)/src
-PROJECT_INC_DIR=$(PROJECT_TOP_DIR)/inc
-PROJECT_LIB_DIR=$(PROJECT_TOP_DIR)/lib
-PROJECT_OBJ_DIR=$(PROJECT_BIN_DIR)/objs
-MKDIR := mkdir -p
+# Configuration options.
+gdb      = not-set
+assert   = not-set
+assert2  = not-set
+debug    = not-set
+gprof    = not-set
+openmp   = not-set
+prefix   = not-set
+pcre     = not-set
+gkregex  = not-set
+gkrand   = not-set
 
-CC := gcc
-TARGETS = opxl
 
-CFLAGS := -g -I$(PROJECT_INC_DIR)
-LDFLAG := -L$(PROJECT_LIB_DIR)
+# Basically proxies everything to the builddir cmake.
+cputype = $(shell uname -m | sed "s/\\ /_/g")
+systype = $(shell uname -s)
 
-src :=$(wildcard $(PROJECT_SRC_DIR)/*.c)
-dir := $(notdir $(src))
-PROJECT_OBJ := $(patsubst %.c,%.o,$(dir) )
-	
-PROJECT_ALL_OBJS := $(addprefix $(PROJECT_OBJ_DIR)/, $(PROJECT_OBJ))
-	
-all:$(PROJECT_SRC_DIR) $(PROJECT_ALL_OBJS)
-	$(CC) $(CFLAGS) $(PROJECT_ALL_OBJS) -o $(PROJECT_BIN_DIR)/$(TARGETS) $(LDFLAG)
+BUILDDIR = build/$(systype)-$(cputype)
 
-$(PROJECT_OBJ_DIR)/%.o : $(PROJECT_SRC_DIR)/%.c
-	$(MKDIR) $(PROJECT_OBJ_DIR)
-	$(CC) -c $(CFLAGS) $< -o $@
-clean:
-	rm -fr $(PROJECT_OBJ_DIR)
-	rm -fr $(TARGETS)	
+# Process configuration options.
+CONFIG_FLAGS = -DCMAKE_VERBOSE_MAKEFILE=1
+ifneq ($(gdb), not-set)
+    CONFIG_FLAGS += -DGDB=$(gdb)
+endif
+ifneq ($(assert), not-set)
+    CONFIG_FLAGS += -DASSERT=$(assert)
+endif
+ifneq ($(assert2), not-set)
+    CONFIG_FLAGS += -DASSERT2=$(assert2)
+endif
+ifneq ($(debug), not-set)
+    CONFIG_FLAGS += -DDEBUG=$(debug)
+endif
+ifneq ($(gprof), not-set)
+    CONFIG_FLAGS += -DGPROF=$(gprof)
+endif
+ifneq ($(openmp), not-set)
+    CONFIG_FLAGS += -DOPENMP=$(openmp)
+endif
+ifneq ($(pcre), not-set)
+    CONFIG_FLAGS += -DPCRE=$(pcre)
+endif
+ifneq ($(gkregex), not-set)
+    CONFIG_FLAGS += -DGKREGEX=$(pcre)
+endif
+ifneq ($(gkrand), not-set)
+    CONFIG_FLAGS += -DGKRAND=$(pcre)
+endif
+ifneq ($(prefix), not-set)
+    CONFIG_FLAGS += -DCMAKE_INSTALL_PREFIX=$(prefix)
+endif
 
+define run-config
+mkdir -p $(BUILDDIR)
+cd $(BUILDDIR) && cmake $(CURDIR) $(CONFIG_FLAGS)
+endef
+
+all clean install: $(BUILDDIR)
+	make -C $(BUILDDIR) $@
+
+uninstall:
+	 xargs rm < $(BUILDDIR)/install_manifest.txt
+
+$(BUILDDIR):
+	$(run-config)
+
+config: distclean
+	$(run-config)
+
+distclean:
+	rm -rf $(BUILDDIR)
+
+remake:
+	find . -name CMakeLists.txt -exec touch {} ';'
+
+.PHONY: config distclean all clean install uninstall remake

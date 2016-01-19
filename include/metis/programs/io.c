@@ -632,16 +632,21 @@ void WriteSubgraph(graph_t *graph, char *fname, idx_t *part, idx_t nparts)
   for (i=0; i<nvtxs; i++) {
     int sgindex = part[i];
     sgsnvtxs[sgindex]++;
+
     fprintf(fpout[sgindex], "\n");
     if (hasvsize) 
       fprintf(fpout[sgindex], " %"PRIDX, vsize[i]);
+    /* write out vsize of current vertex(reused as id of current vertex) */
+    fprintf(fpout[sgindex], " %"PRIDX, i + 1);
 
     if (hasvwgt) {
       for (j=0; j<ncon; j++)
         fprintf(fpout[sgindex], " %"PRIDX, vwgt[i*ncon+j]);
     }
-    fprintf(fpout[sgindex], " %"PRIDX, i + 1);
+    /* write out the weight of vertex */
+    fprintf(fpout[sgindex], " 1.0");
 
+    /* write out the edges and corresponding weight */
     for (j=xadj[i]; j<xadj[i+1]; j++) {
       fprintf(fpout[sgindex], " %"PRIDX, adjncy[j]+1);
       /* print the partition of the current neighbor belongs to*/
@@ -658,7 +663,7 @@ void WriteSubgraph(graph_t *graph, char *fname, idx_t *part, idx_t nparts)
       /* 此时记录边数为实际边数nedges + 1 */
       memset(header, ' ', headerlen);
       /* 为支持有向图, 直接在文件中写入边的条数而不除2 */
-      idx_t newheaderlen = sprintf(header, "%"PRIDX " %"PRIDX" 011", 
+      idx_t newheaderlen = sprintf(header, "%"PRIDX " %"PRIDX" 111", 
               sgsnvtxs[i], sgsnedges[i]);
       if (headerlen - newheaderlen > 0)
           memset(header + newheaderlen, ' ', headerlen - newheaderlen);

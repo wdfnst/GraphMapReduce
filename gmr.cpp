@@ -11,67 +11,67 @@
 #include <errno.h> 
 #include <GKlib.h>
 #include "mpi.h"
+#include "graph.h"
 #include "gmr.h"
 
 using namespace std;
 
-const int process = 3;
-
 int main(int argc, char *argv[]) {
     int rank, size, i, j, iterNum = 0;
-    Vertex *sb,*rb;
-    MPI_Datatype Vertex_Type;
+    char *sb = nullptr, *rb = nullptr;
     char subgraphfilename[256];
     gk_graph_t *graph;
 
     MPI_Init(&argc,&argv);
-    define_new_type(&Vertex_Type);
     MPI_Comm_rank(MPI_COMM_WORLD,&rank);
     MPI_Comm_size(MPI_COMM_WORLD,&size);
 
-    partitionGraph();
-    if (rank == 0)
-        displaySubgraphs();
-
     /* 读入子图subgraph-rank */
-    sprintf(subgraphfilename, "graph/4elt.graph.subgraph.%d", rank);
-    graph = gk_graph_Read(subgraphfilename, GK_GRAPH_FMT_METIS, 1, 0, 0);
+    sprintf(subgraphfilename, "graph/small.graph.subgraph.%d", rank);
+    graph = gk_graph_Read(subgraphfilename, GK_GRAPH_FMT_METIS, 0, 1, 0);
+    printf("%d 节点和边数: %d %zd\n", rank, graph->nvtxs, graph->xadj[graph->nvtxs]);
 
-    printf("%d 节点和边数: %d %zd\n", rank, graph->nvtxs, graph->xadj[graph->nvtxs]/2);
+    int hasvwgts, hasvsizes, hasewgts;
+    hasewgts  = (graph->iadjwgt || graph->fadjwgt);
+    hasvwgts  = (graph->ivwgts || graph->fvwgts);
+    hasvsizes = (graph->ivsizes || graph->fvsizes);
 
+    // displayGraph(graph);
 
     int endflag = 1;
     while(endflag){
+        /* 定义用于缓存向各节点发送数据数量和偏移的数组 */
+        int *sendcounts = getSendBufferSize(graph, rank);
+        int *recvcounts = (int*)malloc(size * sizeof(int));
+        int *sdispls = (int*)malloc(size * sizeof(int));
+        int *rdispls = (int*)malloc(size * sizeof(int));
+        memset(recvcounts, 0, size * sizeof(int));
+        memset(sdispls, 0, size * sizeof(int));
+        memset(rdispls, 0, size * sizeof(int));
 
-        int sendcounts[process] = {0}, recvcounts[process] = {0}; 
-        int sdispls[process] = {0}, rdispls[process] = {0};
-        vector<vector<Vertex>> sendvectors(size);
-        for (auto v = subgraphs[rank].borders(); v != subgraphs[rank].neighbors(); v++) {
-            /*sendedflag用于判断当前遍历的边界节点是否已经放到发送给w.loc号进程*/
-            bitset<process> sendedflag;
-            for (auto w = subgraphs[rank].neighbors(); w != subgraphs[rank].end(); w++) {
-                /*如果当前边界顶点已经放入了发送到目标进程的队列，则跳过*/
-                if (sendedflag.test(w->loc)) continue;
-                /*如果当前邻居与当前边界顶点相连,则将此边界顶点发送给当前邻居所在的进程*/
-                if (find(v->neighbors, v->neighbors + sizeof(v->neighbors) / sizeof(int), 
-                            w->id) != v->neighbors + sizeof(v->neighbors) / sizeof(int)) {
-                    sendvectors[w->loc].push_back(*v);
-                    sendcounts[w->loc]++;
-                    sendedflag.set(w->loc);
-                }
-            }
+        cout << rank << " send size:\n";
+        for (int i = 0; i < size; i++) {
+            cout << sendcounts[i] << "\t";
         }
+        cout << endl;
+        
+        /* 进行两轮alltoall(alltoallv). 第一次同步需要交换数据的空间大小, 第二次交换数据 */
+        MPI_Alltoall(sendcounts, 1, MPI_INT, recvcounts, 1, MPI_INT, 
+                MPI_COMM_WORLD);
 
-        /*根据子图的邻居,申请发送缓存和接收缓存, 并计算发送接收缓冲区偏移*/
-        for (auto v = subgraphs[rank].neighbors(); v != subgraphs[rank].end(); v++) {
-            recvcounts[v->loc]++;
+        cout << rank << " recv size:\n";
+        for (int i = 0; i < size; i++) {
+            cout << recvcounts[i] << "\t";
         }
-        rb = new Vertex[accumulate(recvcounts, recvcounts + size, 0)];    
+        cout << endl;
+
+        /* 申请发送和接收数据的空间 */
+        rb = (char*)malloc(accumulate(recvcounts, recvcounts + size, 0));
         if ( !rb ) {
             perror( "can't allocate recv buffer");
             free(sb); MPI_Abort(MPI_COMM_WORLD,EXIT_FAILURE);
         }
-        sb = new Vertex[accumulate(sendcounts, sendcounts + size, 0)];    
+        sb = (char*)malloc(accumulate(sendcounts, sendcounts + size, 0));
         if ( !sb ) {
             perror( "can't allocate send buffer" );
             MPI_Abort(MPI_COMM_WORLD,EXIT_FAILURE); 
@@ -81,49 +81,51 @@ int main(int argc, char *argv[]) {
             rdispls[i] += (rdispls[i - 1] + recvcounts[i - 1]);
         }
 
-        /*将发送缓冲向量中的数据复制到发送缓存*/
-        int sendbuffersize = accumulate(sendcounts, sendcounts + size, 0);
-        int index = 0;
-        for (int i = 0; i < size; i++) {
-            for (int j = 0; j < sendvectors[i].size() && index < sendbuffersize; j++, index++) { 
-                sb[index] = sendvectors[i][j];
-                //printf("myid=%d,send to id=%d, data[%d]=%d\n",rank,i,j,sb[index].id);
-            }
-        }
+        /* 将要发送的数据从graph中拷贝到发送缓存sb中 */
+        sb = getSendbuffer(graph, sendcounts, sdispls, size, rank);
 
         /* 执行MPI_Alltoall 调用*/
-        /* TODO: 进行两轮alltoallv(). 第一次交换对方需要接收的数据空间大小, 第二次数据局 */
-        MPI_Alltoallv(sb,sendcounts,sdispls,Vertex_Type,rb,recvcounts,rdispls,Vertex_Type, 
+        MPI_Alltoallv(sb, sendcounts, sdispls, MPI_CHAR, rb, recvcounts, rdispls, MPI_CHAR, 
                 MPI_COMM_WORLD);
 
         /*从其他子图传过来的子图,应该更新到本子图上,然后计算本子图信息*/
         /*处理从别的节点传过来的数据(邻居节点), 并更新本地数据*/
-        //cout << "Process " << rank << " recv: ";
-        for ( i=0 ; i < size ; i++ ) {
-            //cout << "(P" << i << ")->";
-            for (j = 0; j < recvcounts[i]; j++) {
-                //cout << rb[rdispls[i] + j].id << "(" << rb[rdispls[i] + j].value << "), ";
-                /*使用从别的节点传递过来顶点信息更新本子图的neighbors节点*/
-                auto iter = getVertexIter(subgraphs[rank].neighbors(), subgraphs[rank].end(), 
-                        rb[rdispls[i] + j].id);
-                if (iter != subgraphs[rank].end())
-                    iter->value = rb[rdispls[i] + j].value;
+        int rbsize = accumulate(recvcounts, recvcounts + size, 0);
+        cout << "Process " << rank << " recv: ";
+        for ( i = 0 ; i < rbsize; ) {
+            int vid, eid, location, eweight, edgenum = 0;
+            float vweight;
+            memcpy(&vid, rb + i, sizeof(int));
+            memcpy(&location, rb + (i += sizeof(int)), sizeof(int));
+            memcpy(&vweight, rb + (i += sizeof(int)), sizeof(float));
+            memcpy(&edgenum, rb + (i += sizeof(float)), sizeof(int));
+            printf(" %d %d %f %d ", vid, location, vweight, edgenum);
+            i += sizeof(int);
+            for (int j = 0; j < edgenum; j++, i += sizeof(int)) {
+                memcpy(&eid, rb + i, sizeof(int));
+                printf(" %d", eid + 1);
             }
-            //cout << ";\t";
+            for (int j = 0; j < edgenum; j++, i += sizeof(int)) {
+                memcpy(&eweight, rb + i, sizeof(int));
+                printf(" %d", eweight);
+            }
+            printf(" %d / %d\n", i, rbsize);
         }
-        //cout << "\n";
+        printf("\n");
 
         /*合并其他节点传递过来的顶点，计算并判断是否迭代结束*/
-        computing(rank, subgraphs[rank]);
-        displayGraph(iterNum++, subgraphs[rank]);
+        computing(rank, graph, rb, rbsize); 
         free(sb); free(rb);
         MPI_Barrier(MPI_COMM_WORLD);
+        break;
 
-        /*判断迭代是否结束*/
-        int iterationCompleted = isCompleted(rank);
-        int *rbuf = (int *)malloc(size * sizeof(int));
-        MPI_Allgather(&iterationCompleted, 1, MPI_INT, rbuf, 1, MPI_INT, MPI_COMM_WORLD);
-        endflag = accumulate(rbuf, rbuf + size, 0);
+//         /*判断迭代是否结束*/
+//         int iterationCompleted = isCompleted(rank);
+//         int *rbuf = (int *)malloc(size * sizeof(int));
+//         MPI_Allgather(&iterationCompleted, 1, MPI_INT, rbuf, 1, MPI_INT, MPI_COMM_WORLD);
+//         endflag = accumulate(rbuf, rbuf + size, 0);
+//         free(rbuf);
+        iterNum++;
     }
     MPI_Finalize();
     gk_graph_Free(&graph);

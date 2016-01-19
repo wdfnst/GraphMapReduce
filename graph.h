@@ -1,113 +1,140 @@
-struct Vertex {
-    int id; int loc; int neighbors[512]; float value;
-    bool operator==(int key) {
-        return this->id == key;
-    }
-    bool operator<(int key) {
-        return id < key;
-    }
-};
-struct KV {
-    int key; float value;
-    bool operator==(int key) {
-        return this->key == key;
-    }
-};
-struct SubGraph {
-    std::list<Vertex> vs;
-    int innerOffset;
-    int borderOffset;
-    int neighborOffset;
-    std::list<Vertex>::iterator begin() {
-        return vs.begin();
-    }
-    std::list<Vertex>::iterator inners() {
-        return vs.begin();
-    }
-    std::list<Vertex>::iterator borders() {
-        auto iter = vs.begin();
-        advance(iter, innerOffset);
-        return iter;
-    }
-    std::list<Vertex>::iterator neighbors() {
-        auto iter = vs.begin();
-        advance(iter, borderOffset);
-        return iter;
-    }
-    std::list<Vertex>::iterator end() {
-        return vs.end();
-    }
-};
-void define_new_type(MPI_Datatype* ctype)
-{
-    int blockcounts[4];
-    MPI_Datatype oldtypes[4];
-    MPI_Aint offsets[4];
+/*************************************************************************/
+/*! 此文件主要用来定义与图操作相关的函数，如:
+ * 分图、图显示、计算发送顶点缓存大小
+*/
+/**************************************************************************/
 
-    blockcounts[0]=1;
-    blockcounts[1]=1;
-    blockcounts[2]=512;
-    blockcounts[3]=1;
+const int GRAPH_SIZE = 15606;
+/* 最大子图定点数1000, 0000 */
+const int MAX_GRAPH_SIZE = 10000000;
+const int processes = 3;
 
-    offsets[0]=0;
-    offsets[1]=sizeof(int);
-    offsets[2]=sizeof(int) + sizeof(int);
-    offsets[3]=sizeof(int) + sizeof(int) + 512 * sizeof(int);
+/* 使用MPI并行分图算法 */
+void partitionGraph(gk_graph_t *graph, int nparts) { }
 
-    oldtypes[0]=MPI_INT;
-    oldtypes[1]=MPI_INT;
-    oldtypes[2]=MPI_INT;
-    oldtypes[3]=MPI_FLOAT;
+/* 打印图信息 */
+void displayGraph(gk_graph_t *graph) {
+    int hasvwgts, hasvsizes, hasewgts;
+    hasewgts  = (graph->iadjwgt || graph->fadjwgt);
+    hasvwgts  = (graph->ivwgts || graph->fvwgts);
+    hasvsizes = (graph->ivsizes || graph->fvsizes);
 
-    MPI_Type_struct(4,blockcounts,offsets,oldtypes,ctype);
-    MPI_Type_commit(ctype);
+    for (int i=0; i<graph->nvtxs; i++) {
+        if (hasvsizes) {
+            if (graph->ivsizes)
+                printf(" %d", graph->ivsizes[i]);
+            else
+                printf(" %f", graph->fvsizes[i]);
+        }
+        if (hasvwgts) {
+            if (graph->ivwgts)
+                printf(" %d", graph->ivwgts[i]);
+            else
+                printf(" %f", graph->fvwgts[i]);
+        }
+
+        for (int j=graph->xadj[i]; j<graph->xadj[i+1]; j++) {
+            /* graph的邻居点数组中实际上存储的是以0开始的顶点,实际使用是以1开始
+             * 所以需要在顶点原值的基础上加1 */
+            printf(" %d", graph->adjncy[j]+1);
+            if (hasewgts) {
+                if (graph->iadjwgt)
+                    printf(" %d", graph->iadjwgt[j]);
+                else 
+                    printf(" %f", graph->fadjwgt[j]);
+                }
+        }
+        printf("\n");
+    }
 }
 
-Vertex vs[12] = {{}, {1, 0, {2, 3, 4, 5, 10}, 1.0}, {2, 1, {1, 3, 6, 7}, 1.0}, 
-                     {3, 2, {1, 2, 8, 9}, 1.0},
-                     {4, 0, {1}, 1.0}, {5, 0, {1}, 1.0}, {6, 1, {2}, 1.0}, {7, 1, {2}, 1.0},
-                     {8, 2, {3}, 1.0}, {9, 2, {3, 10}, 1.0}, {10, 2, {1, 9}, 1.0}};
-SubGraph subgraphs[3];
+/* 获取发往其他各运算节点的字节数 */
+int *getSendBufferSize(const gk_graph_t *graph, const int rank) {
+    int *sendcounts = (int*)malloc(processes * sizeof(int));
+    memset(sendcounts, 0, processes * sizeof(int));
+    /* 先遍历一次需要发送的数据，确定需要和每个节点交换的数据 */
+    for (int i=0; i<graph->nvtxs; i++) {
+        /* 记录当前节点的大小 */
+        int currentVertexSize = 0;
+        // id, loc, weight of vertex
+        currentVertexSize += sizeof(int);
+        currentVertexSize += sizeof(int);
+        currentVertexSize += graph->ivwgts ? sizeof(int) : sizeof(float);
+        // edges and weight of edges
+        int neighborNum = graph->xadj[i+1] - graph->xadj[i];
+        currentVertexSize += sizeof(int);
+        currentVertexSize += neighborNum * sizeof(int);
+        currentVertexSize += neighborNum * (graph->iadjwgt ?  sizeof (int) : sizeof(float));
 
-void partitionGraph() {
-    SubGraph sg0, sg1, sg2;
-    sg0.vs.push_back(vs[4]); sg0.vs.push_back(vs[5]);
-    sg0.vs.push_back(vs[1]);
-    sg0.vs.push_back(vs[2]); sg0.vs.push_back(vs[3]); sg0.vs.push_back(vs[10]);
-    sg0.innerOffset = 2; sg0.borderOffset = 3; sg0.neighborOffset = 6;
-
-    sg1.vs.push_back(vs[6]); sg1.vs.push_back(vs[7]);
-    sg1.vs.push_back(vs[2]);
-    sg1.vs.push_back(vs[1]); sg1.vs.push_back(vs[3]);
-    sg1.innerOffset = 2; sg1.borderOffset = 3; sg1.neighborOffset = 5;
-
-    sg2.vs.push_back(vs[8]); sg2.vs.push_back(vs[9]);
-    sg2.vs.push_back(vs[3]); sg2.vs.push_back(vs[10]);
-    sg2.vs.push_back(vs[1]); sg2.vs.push_back(vs[2]);
-    sg2.innerOffset = 2; sg2.borderOffset = 4; sg2.neighborOffset = 6;
-
-    subgraphs[0] = sg0;
-    subgraphs[1] = sg1;
-    subgraphs[2] = sg2;
+        /* visited 用于记录当前遍历的顶点是否已经发送给节点iadjwgt[j]*/
+        std::bitset<processes> visited;
+        for (int j=graph->xadj[i]; j<graph->xadj[i+1]; j++) {
+            if (graph->iadjwgt[j] == rank) continue;
+            if (visited.test(graph->iadjwgt[j])) continue;
+            visited.set(graph->iadjwgt[j]);
+            sendcounts[graph->iadjwgt[j]] += currentVertexSize;
+        }
+    }
+    return sendcounts;
 }
 
-void partitionGraph(int partitions) { }
+/* 将要发送的数据从graph中拷贝到发送缓存sb中 */
+char *getSendbuffer(gk_graph_t *graph, int *sendcounts, int *sdispls, 
+        int psize, int rank) {
+    /* 申请发送缓存 */
+    char *sb = (char*)malloc(std::accumulate(sendcounts, sendcounts + psize, 0));
+    if ( !sb ) {
+        perror( "can't allocate send buffer" );
+        MPI_Abort(MPI_COMM_WORLD,EXIT_FAILURE); 
+    }
 
-void displaySubgraphs() {
-    for (int i = 0; i < sizeof(subgraphs) / sizeof(SubGraph); i++)
-        std::cout << "subgraph[" << i << "] info:" << subgraphs[i].innerOffset << " inns\t" << 
-            subgraphs[i].borderOffset - subgraphs[i].innerOffset << " bors\t" << 
-            subgraphs[i].neighborOffset - subgraphs[i].borderOffset << " neighbors\n";
-}
+    /* 将要发送顶点拷贝到对应的缓存 */
+    int *offsets = (int*)malloc(psize * sizeof(int));
+    memset(offsets, 0, psize * sizeof(int));
+    for (int i=0; i<graph->nvtxs; i++) {
+        /* record the size of current vertex */
+        int currentVertexSize = 0;
+        // accumulate the size of id, loc, weight of vertex
+        currentVertexSize += sizeof(int);
+        currentVertexSize += sizeof(int);
+        currentVertexSize += graph->ivwgts ? sizeof(int) : sizeof(float);
+        // accumulate the size of edges and weight of edges
+        int neighborNum = graph->xadj[i+1] - graph->xadj[i];
+        currentVertexSize += sizeof(int);
+        currentVertexSize += neighborNum * sizeof(int);
+        currentVertexSize += neighborNum * (graph->iadjwgt ?  sizeof (int) : sizeof(float));
 
-void displayGraph(int iterNum, SubGraph &sg) {
-    std::cout << iterNum << "th:";
-    for (auto iter = sg.begin(); iter != sg.neighbors(); iter++)
-        printf("%d(%6.4f) ", iter->id, iter->value);
-    std::cout << std::endl;
-}
+        /* vertex memory image: (id | location | weight | edgenum 
+         * | edges1-n | weightOfedges1-n) */
+        char *vertex = (char*)malloc(currentVertexSize * sizeof(char));;
+        memset(vertex, 0, currentVertexSize * sizeof(char));
+        memcpy(vertex, &(graph->ivsizes[i]), sizeof(int));
+        memcpy(vertex + sizeof(int), &rank, sizeof(int));
+        memcpy(vertex + 2 * sizeof(int), &(graph->fvwgts[i]), sizeof(float));
+        memcpy(vertex + 2 * sizeof(int) + sizeof(float), &neighborNum, sizeof(int));
+        memcpy(vertex + 3 * sizeof(int) + sizeof(float), &(graph->adjncy[graph->xadj[i]]), 
+                neighborNum * sizeof(int));
 
-std::list<Vertex>::iterator getVertexIter(const std::list<Vertex>::iterator &begin, 
-        const std::list<Vertex>::iterator &end, int vertexId) {
-    return find(begin, end, vertexId);
+        /* 将顶点的边的权重weight拷贝进发送缓存 */
+        if (graph->iadjwgt) 
+            memcpy(vertex + (3 + neighborNum) * sizeof(int) + sizeof(float), 
+                    &(graph->iadjwgt[graph->xadj[i]]), neighborNum * sizeof(int));
+        else 
+            memcpy(vertex + (3 + neighborNum) * sizeof(int) + sizeof(float), 
+                    &(graph->iadjwgt[graph->xadj[i]]), neighborNum * sizeof(float));
+
+        /* visited 用于记录当前遍历的顶点是否已经发送给节点iadjwgt[j]*/
+        std::bitset<processes> visited;
+        for (int j = graph->xadj[i]; j< graph->xadj[i+1]; j++) {
+            if (graph->iadjwgt[j] == rank) continue;
+            if (visited.test(graph->iadjwgt[j])) continue;
+            visited.set(graph->iadjwgt[j]);
+            memcpy(sb + sdispls[graph->iadjwgt[j]] + offsets[graph->iadjwgt[j]],
+                    vertex, currentVertexSize);
+            offsets[graph->iadjwgt[j]] += currentVertexSize;
+        }
+        if (vertex) free(vertex);
+    }
+    if (offsets) free(offsets);
+    return sb;
 }

@@ -8,6 +8,19 @@
 #### 3. 图划分:
 为了将整图的不同部分放到不同的计算节点进行并行计算，需要将整划分为若干子图。本框架中每个子图包含三个部分{inners, borders, neighbors}, inners表示子图内与其他子图没有连接的顶点；borders表示子图内与其他子图又连接的顶点；neighbors表示子图外与本子图连接的顶点。
 
+## 二、迭代计算过程
+#### 1. 通信:
+第一步,先遍历自己计算的子图graph与其他子图的邻居情况,并收集需要向其他节点发送的字节数,并申请发送缓冲区;
+第二步,通过MPI_Alltoall()与其他节点交换其他节点需要接受的字节数,每个节点收到信息后,各自计算和申请接受数据需要的空间。
+第三步,再次遍历自己计算的子图graph,并将需要发往其他节点的顶点信心拷贝到发送缓存char *sb;
+第四部,调用MPI_Alltoallv(),将发送缓存中的数据发往各节点.
+#### 2. 计算1th/2:map
+将子图graph和接受缓冲区中的数据实例化为顶点Vertex，再调用业务逻辑函数map将Vertex生成key/value list。
+#### 3. 对生成key/value list进行排序
+#### 4. 计算2th/2:reduce
+将排序好的key/value list按照业务逻辑函数reduce进行规约.
+#### 5. 将reduce计算的结果更新到graph中
+
 ## 二. 编译和运行
 ### 1. (not mandatory)切图
 切图采用了metis库，其源码和说明位于include/metis中，其编译使用可参考include/metis/README.md.

@@ -19,7 +19,7 @@
 第四部,调用MPI_Alltoallv(),将发送缓存中的数据发往各节点.
 #### 2. 计算1th/2:map
 将子图graph和接受缓冲区中的数据实例化为顶点Vertex，再调用业务逻辑函数map将Vertex生成key/value list。
-#### 3. 对生成key/value list进行排序
+#### 3. 对生成key/value list进行排序: sort()
 #### 4. 计算2th/2:reduce
 将排序好的key/value list按照业务逻辑函数reduce进行规约.
 #### 5. 将reduce计算的结果更新到graph中

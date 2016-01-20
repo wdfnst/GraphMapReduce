@@ -4,6 +4,10 @@
 */
 /**************************************************************************/
 
+/* 判断是否在控制台打印调试信息 */
+enum LOG_LEVEL {ERROR, WARM, INFO, DEBUG};
+#define DEBUG false 
+
 /* 迭代结束标志:0表示还有元素没有达到迭代结束条件, 
  * 默认表示都达到迭代结束条件 */
 int iterationCompleted = 0;
@@ -17,6 +21,8 @@ struct KV {
     }
 };
 
+/* 用于从csr(Compressed Sparse Row)中生成Vertex顶点进行map/reduce */
+/* 用于业务逻辑计算，而非图的表示 */
 struct Vertex {
     int id, loc, neighborSize, neighbors[512]; float value;
     bool operator==(int key) {
@@ -27,12 +33,33 @@ struct Vertex {
     }
 };
 
+/* 将图中指定id的顶点的值进行更新, 并返回迭代是否结束 */
+int updateGraph(gk_graph_t *graph, std::list<KV> &reduceResult) {
+    iterationCompleted = 0;
+    for (int i=0; i<graph->nvtxs; i++) {
+        auto iter = reduceResult.begin();
+        for (; iter != reduceResult.end(); iter++) {
+            if (graph->ivsizes[i] == iter->key) {
+                /*和老值进行比较, 判断迭代是否结束*/
+                if (fabs(iter->value - graph->fvwgts[i]) > threshold) {
+                    printf("迭代误差: fasb(%f - %f) = %f\n", iter->value, graph->fvwgts[i], 
+                                fabs(iter->value - graph->fvwgts[i]));
+                    iterationCompleted = 1;
+                }
+                graph->fvwgts[i] = iter->value;
+            }
+        }
+    }
+    return iterationCompleted;
+}
+
 void map(Vertex &v, std::list<KV> &kvs) {
-    int neighbor_count = 0;
-    while(v.neighbors[neighbor_count] != 0)neighbor_count++;
-    float value = v.value / neighbor_count;
-    for (int i = 0; i < neighbor_count; i++)
+    if(DEBUG) printf("get in the map function.\n");
+    float value = v.value / v.neighborSize;
+    for (int i = 0; i < v.neighborSize; i++) {
         kvs.push_back({v.neighbors[i], value});
+        if(DEBUG) printf("%d %f\n", v.neighbors[i], value);
+    }
 }
 
 void sort(std::list<KV> &kvs) { }
@@ -43,7 +70,8 @@ KV reduce(std::list<KV> &kvs) {
         sum += kv.value;
     }
     /*Pagerank=a*(p1+p2+…Pm)+(1-a)*1/n，其中m是指向网页j的网页j数，n所有网页数*/
-    sum = 0.5 * sum + (1 - 0.5) / GRAPH_SIZE; 
+    sum = 0.5 * sum + (1 - 0.5) / graphs[testgraph].nvtx; 
+    //printf("reduce result: %d %f\n", kvs.front().key, sum);
     return {kvs.front().key, sum};
 }
 
@@ -74,7 +102,7 @@ void computing(int rank, gk_graph_t *graph, char *rb, int recvbuffersize) {
         memcpy(&location, rb + (i += sizeof(int)), sizeof(int));
         memcpy(&vweight, rb + (i += sizeof(int)), sizeof(float));
         memcpy(&edgenum, rb + (i += sizeof(float)), sizeof(int));
-        printf(" %d %d %f %d ", vid, location, vweight, edgenum);
+        if(DEBUG) printf(" %d %d %f %d ", vid, location, vweight, edgenum);
         vertex.id = vid;
         vertex.loc = location;
         vertex.value = vweight;
@@ -82,14 +110,14 @@ void computing(int rank, gk_graph_t *graph, char *rb, int recvbuffersize) {
         i += sizeof(int);
         for (int j = 0; j < edgenum; j++, i += sizeof(int)) {
             memcpy(&eid, rb + i, sizeof(int));
-            printf(" %d", eid + 1);
+            if(DEBUG) printf(" %d", eid + 1);
             vertex.neighbors[j] = eid + 1;
         }
         for (int j = 0; j < edgenum; j++, i += sizeof(int)) {
             memcpy(&eweight, rb + i, sizeof(int));
-            printf(" %d", eweight);
+            if(DEBUG) printf(" %d", eweight);
         }
-        printf("\n");
+        if(DEBUG) printf("\n");
         map(vertex, kvs);
     }
 
@@ -97,30 +125,20 @@ void computing(int rank, gk_graph_t *graph, char *rb, int recvbuffersize) {
     kvs.sort([](KV &kv1, KV &kv2){return kv1.key < kv2.key;});
 
     std::list<KV> sameKeylist;
+    std::list<KV> reduceResult;
     for (KV kv : kvs) {
         if(sameKeylist.size() > 0 && kv.key != sameKeylist.front().key) {
-            KV tmpKV = reduce(sameKeylist);
-//             /*将reduce的新值更新到子图中; TODO: 改为批量更新*/
-//             auto iter = getVertexIter(sg.begin(), sg.neighbors(), tmpKV.key);
-//             if (iter != sg.neighbors()) {
-//                 /*和老值进行比较, 判断迭代是否结束*/
-//                 if (iter->value - tmpKV.value > threshold) {
-//                     iterationCompleted = 1;
-//                 }
-//                 iter->value = tmpKV.value;
-//             }
+            KV tmpkv = reduce(sameKeylist);
+            reduceResult.push_back(tmpkv);
             sameKeylist.clear();
         }
         sameKeylist.push_back(kv);
     }
-    KV kv = reduce(sameKeylist);
-//     /*将reduce的新值更新到子图中; TODO: 改为批量更新*/
-//     auto iter = getVertexIter(sg.begin(), sg.neighbors(), kv.key);
-//     if (iter != sg.neighbors()) {
-//         if (iter->value - kv.value > threshold)
-//             iterationCompleted = 1;
-//         iter->value = kv.value;
-//     }
+    reduceResult.push_back(reduce(sameKeylist));
+    sameKeylist.clear();
+
+    /* 将最终迭代的结果进行更新到子图上, 并判断迭代是否结束*/
+    updateGraph(graph, reduceResult);
 }
 
 int isCompleted(int rank) {

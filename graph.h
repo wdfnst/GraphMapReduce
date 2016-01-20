@@ -4,10 +4,18 @@
 */
 /**************************************************************************/
 
-const int GRAPH_SIZE = 15606;
-/* 最大子图定点数1000, 0000 */
-const int MAX_GRAPH_SIZE = 10000000;
-const int processes = 3;
+/* 用于定义测试的整图信息(非子图), 分图之前的整图信息 */
+struct Graph {
+    char name[256];         /*! 图的名字 */
+    size_t nvtx;            /*! 图的顶点数 */
+    size_t nedge;           /*! 图的边数 */
+};
+
+/* 用于测试的图 */
+const Graph graphs[] = {{"small", 10, 10}, {"4elt", 15606, 45878}, 
+                    {"mdual", 258569, 513132}};
+const int subgraphNum = 3;      /* 分图之后的子图个数 */
+const int testgraph = 2;        /* 用于测试的图位于上面图数组的序号 */
 
 /* 使用MPI并行分图算法 */
 void partitionGraph(gk_graph_t *graph, int nparts) { }
@@ -49,9 +57,9 @@ void displayGraph(gk_graph_t *graph) {
 }
 
 /* 获取发往其他各运算节点的字节数 */
-int *getSendBufferSize(const gk_graph_t *graph, const int rank) {
-    int *sendcounts = (int*)malloc(processes * sizeof(int));
-    memset(sendcounts, 0, processes * sizeof(int));
+int *getSendBufferSize(const gk_graph_t *graph, const int psize, const int rank) {
+    int *sendcounts = (int*)malloc(psize * sizeof(int));
+    memset(sendcounts, 0, psize * sizeof(int));
     /* 先遍历一次需要发送的数据，确定需要和每个节点交换的数据 */
     for (int i=0; i<graph->nvtxs; i++) {
         /* 记录当前节点的大小 */
@@ -67,7 +75,7 @@ int *getSendBufferSize(const gk_graph_t *graph, const int rank) {
         currentVertexSize += neighborNum * (graph->iadjwgt ?  sizeof (int) : sizeof(float));
 
         /* visited 用于记录当前遍历的顶点是否已经发送给节点iadjwgt[j]*/
-        std::bitset<processes> visited;
+        std::bitset<subgraphNum> visited;
         for (int j=graph->xadj[i]; j<graph->xadj[i+1]; j++) {
             if (graph->iadjwgt[j] == rank) continue;
             if (visited.test(graph->iadjwgt[j])) continue;
@@ -124,7 +132,7 @@ char *getSendbuffer(gk_graph_t *graph, int *sendcounts, int *sdispls,
                     &(graph->iadjwgt[graph->xadj[i]]), neighborNum * sizeof(float));
 
         /* visited 用于记录当前遍历的顶点是否已经发送给节点iadjwgt[j]*/
-        std::bitset<processes> visited;
+        std::bitset<subgraphNum> visited;
         for (int j = graph->xadj[i]; j< graph->xadj[i+1]; j++) {
             if (graph->iadjwgt[j] == rank) continue;
             if (visited.test(graph->iadjwgt[j])) continue;

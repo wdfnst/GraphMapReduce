@@ -6,3 +6,4 @@ gmr
 ctags
 include/metis/build/
 include/metis/GKlib/build
+!include/metis/GKlib/test

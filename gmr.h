@@ -22,6 +22,7 @@ float remainDeviation = FLT_MAX;
 /* 迭代次数计数器 */
 int iterNum = 0;
 
+/* Map/Reduce编程模型中的键值对,用于作为Map输出和Reduce输入输出*/
 struct KV {
     int key; float value;
     bool operator==(int key) {
@@ -29,6 +30,7 @@ struct KV {
     }
 };
 
+/* 记录当前程序执行到当前位置的MPI_Wtime */
 void recordTick(std::string tickname) {
     timeRecorder[tickname] = MPI_Wtime();
 }
@@ -76,6 +78,7 @@ int updateGraph(gk_graph_t *graph, std::list<KV> &reduceResult) {
     return iterationCompleted;
 }
 
+/* Map/Reduce编程模型中的Map函数 */
 void map(Vertex &v, std::list<KV> &kvs) {
     if(DEBUG) printf("get in the map function.\n");
     float value = v.value / v.neighborSize;
@@ -85,8 +88,10 @@ void map(Vertex &v, std::list<KV> &kvs) {
     }
 }
 
+/* 用于将Map/Reduce计算过程中产生的KV list进行排序 */
 void sort(std::list<KV> &kvs) { }
 
+/* Map/Reduce编程模型中的Reduce函数 */
 KV reduce(std::list<KV> &kvs) {
     float sum = 0.0;
     for (auto kv : kvs) {
@@ -171,15 +176,16 @@ void computing(int rank, gk_graph_t *graph, char *rb, int recvbuffersize) {
 
     /* 将最终迭代的结果进行更新到子图上, 并判断迭代是否结束 */
     recordTick("bupdategraph");
-    /* 从reduceResult中删除非本节点的顶点 */
     updateGraph(graph, reduceResult);
     recordTick("eupdategraph");
 }
 
+/* 返回迭代是否结束 */
 int isCompleted(int rank) {
     return iterationCompleted;    
 }
 
+/* 打印计算的过程中的信息: 迭代次数, 各个步骤耗时 */
 void printTimeConsume() {
     printf("迭代次数-%d, 迭代残余误差-%f, 本次迭代耗时-%f:(%f[exdata] & %f[map] & %f"
             "[reduce] & %f[updategraph] & %f[computing] & %f[exiterfinish])\n", 

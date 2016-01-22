@@ -94,6 +94,7 @@ int main(int argc, char *argv[]) {
         /*从其他子图传过来的子图,应该更新到本子图上,然后计算本子图信息*/
         /*处理从别的节点传过来的数据(邻居节点), 并更新本地数据*/
         int rbsize = accumulate(recvcounts, recvcounts + size, 0);
+        recvBytes += rbsize;
         if (DEBUG) printf("Process %d recv:", rank);
         for ( i = 0 ; i < rbsize; ) {
             int vid, eid, location, eweight, edgenum = 0;
@@ -137,5 +138,6 @@ int main(int argc, char *argv[]) {
     }
     MPI_Finalize();
     gk_graph_Free(&graph);
-    printf("程序运行结束,总共耗时:%f, 最大消耗内存:(未统计)\n", MPI_Wtime() - starttime);
+    printf("程序运行结束,总共耗时:%f secs, 通信量:%ld Byte, 最大消耗内存:(未统计)Byte\n", 
+            MPI_Wtime() - starttime, recvBytes);
 }

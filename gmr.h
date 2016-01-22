@@ -11,6 +11,8 @@ enum LOG {DEBUG, INFO, WARN, ERROR};
 
 /* 记录一次迭代中,各个步骤消耗的时间 */
 std::map<std::string, double> timeRecorder;
+/* 记录程序运行过程中的接收的字节数 */
+long recvBytes = 0;
 
 /* 迭代结束标志:0表示还有元素没有达到迭代结束条件, 
  * 默认表示都达到迭代结束条件 */

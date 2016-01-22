@@ -5,14 +5,22 @@
 /**************************************************************************/
 
 /* 判断是否在控制台打印调试信息 */
-enum LOG_LEVEL {ERROR, WARM, INFO, DEBUG};
-#define DEBUG false 
+enum LOG {DEBUG, INFO, WARN, ERROR};
+#define INFO   false 
+#define DEBUG  false 
+
+/* 记录一次迭代中,各个步骤消耗的时间 */
+std::map<std::string, double> timeRecorder;
 
 /* 迭代结束标志:0表示还有元素没有达到迭代结束条件, 
  * 默认表示都达到迭代结束条件 */
 int iterationCompleted = 0;
-/* 迭代精度 */
+/* 迭代要求精度 */
 float threshold = 0.0001;
+/* 当前迭代残余误差 */
+float remainDeviation = FLT_MAX;
+/* 迭代次数计数器 */
+int iterNum = 0;
 
 struct KV {
     int key; float value;
@@ -20,6 +28,10 @@ struct KV {
         return this->key == key;
     }
 };
+
+void recordTick(std::string tickname) {
+    timeRecorder[tickname] = MPI_Wtime();
+}
 
 /* 用于从csr(Compressed Sparse Row)中生成Vertex顶点进行map/reduce */
 /* 用于业务逻辑计算，而非图的表示 */
@@ -36,20 +48,31 @@ struct Vertex {
 /* 将图中指定id的顶点的值进行更新, 并返回迭代是否结束 */
 int updateGraph(gk_graph_t *graph, std::list<KV> &reduceResult) {
     iterationCompleted = 0;
-    for (int i=0; i<graph->nvtxs; i++) {
-        auto iter = reduceResult.begin();
-        for (; iter != reduceResult.end(); iter++) {
-            if (graph->ivsizes[i] == iter->key) {
-                /*和老值进行比较, 判断迭代是否结束*/
-                if (fabs(iter->value - graph->fvwgts[i]) > threshold) {
-                    printf("迭代误差: fasb(%f - %f) = %f\n", iter->value, graph->fvwgts[i], 
-                                fabs(iter->value - graph->fvwgts[i]));
-                    iterationCompleted = 1;
-                }
-                graph->fvwgts[i] = iter->value;
+    int i = 0;
+    float currentMaxDeviation = 0.0;
+    auto iter = reduceResult.begin();
+    while (i < graph->nvtxs && iter != reduceResult.end() ) {
+        /* 因为reduceResult中的Key包含了所有的子图中的vertex id
+         * 所以一旦不等则是reduceResult中过多,直接进行递增即可 */
+        if (iter->key != graph->ivsizes[i]) iter++;
+        else {
+            /* 计算误差，并和老值进行比较, 判断迭代是否结束 */
+            float deviation = fabs(iter->value - graph->fvwgts[i]);
+            if (deviation > threshold) {
+                if (deviation > currentMaxDeviation) currentMaxDeviation = deviation;
+                if(INFO) printf("迭代误差: fasb(%f - %f) = %f\n", iter->value,
+                        graph->fvwgts[i], fabs(iter->value - graph->fvwgts[i]));
+                iterationCompleted = 1;
             }
+            graph->fvwgts[i] = iter->value;
+            i++; iter++;
         }
     }
+
+    /* 如果当前误差小于全局残余误差则更新全局残余误差 */
+    if (currentMaxDeviation < remainDeviation) remainDeviation = currentMaxDeviation;
+    if(INFO) printf("迭代残余误差: %f\n", remainDeviation);
+
     return iterationCompleted;
 }
 
@@ -71,7 +94,7 @@ KV reduce(std::list<KV> &kvs) {
     }
     /*Pagerank=a*(p1+p2+…Pm)+(1-a)*1/n，其中m是指向网页j的网页j数，n所有网页数*/
     sum = 0.5 * sum + (1 - 0.5) / graphs[testgraph].nvtx; 
-    //printf("reduce result: %d %f\n", kvs.front().key, sum);
+    if (DEBUG) printf("reduce result: %d %f\n", kvs.front().key, sum);
     return {kvs.front().key, sum};
 }
 
@@ -81,7 +104,7 @@ void computing(int rank, gk_graph_t *graph, char *rb, int recvbuffersize) {
     std::list<KV> kvs;
     Vertex vertex;
 
-    /* 由子图中信息构造一个个顶点(vertex),然后交给map处理 */
+    recordTick("bgraphmap");
     for (int i=0; i<graph->nvtxs; i++) {
         vertex.id = graph->ivsizes[i];
         vertex.value = graph->fvwgts[i];
@@ -94,7 +117,11 @@ void computing(int rank, gk_graph_t *graph, char *rb, int recvbuffersize) {
         }
         map(vertex, kvs);
     }
+    recordTick("egraphmap");
+
     /* 由接收缓冲区数据构造一个个顶点(vertex), 再交给map处理 */
+    /* 产生的Key/value，只记录本节点的顶点的,采用Bloom Filter验证 */
+    recordTick("brecvbuffermap");
     for (int i = 0 ; i < recvbuffersize; ) {
         int vid, eid, location, eweight, edgenum = 0;
         float vweight;
@@ -120,10 +147,14 @@ void computing(int rank, gk_graph_t *graph, char *rb, int recvbuffersize) {
         if(DEBUG) printf("\n");
         map(vertex, kvs);
     }
+    recordTick("erecvbuffermap");
 
     /* 对map产生的key/value list进行排序 */
+    recordTick("bsort");
     kvs.sort([](KV &kv1, KV &kv2){return kv1.key < kv2.key;});
+    recordTick("esort");
 
+    recordTick("breduce");
     std::list<KV> sameKeylist;
     std::list<KV> reduceResult;
     for (KV kv : kvs) {
@@ -136,11 +167,28 @@ void computing(int rank, gk_graph_t *graph, char *rb, int recvbuffersize) {
     }
     reduceResult.push_back(reduce(sameKeylist));
     sameKeylist.clear();
+    recordTick("ereduce");
 
-    /* 将最终迭代的结果进行更新到子图上, 并判断迭代是否结束*/
+    /* 将最终迭代的结果进行更新到子图上, 并判断迭代是否结束 */
+    recordTick("bupdategraph");
+    /* 从reduceResult中删除非本节点的顶点 */
     updateGraph(graph, reduceResult);
+    recordTick("eupdategraph");
 }
 
 int isCompleted(int rank) {
     return iterationCompleted;    
+}
+
+void printTimeConsume() {
+    printf("迭代次数-%d, 迭代残余误差-%f, 本次迭代耗时-%f:(%f[exdata] & %f[map] & %f"
+            "[reduce] & %f[updategraph] & %f[computing] & %f[exiterfinish])\n", 
+            iterNum, remainDeviation,
+            timeRecorder["eexchangeiterfinish"] - timeRecorder["bexchangecounts"],
+            timeRecorder["eexchangedata"] - timeRecorder["bexchangedata"],
+            timeRecorder["erecvbuffermap"] - timeRecorder["bgraphmap"],
+            timeRecorder["ereduce"] - timeRecorder["breduce"], 
+            timeRecorder["eupdategraph"] - timeRecorder["bupdategraph"], 
+            timeRecorder["ecomputing"] - timeRecorder["bcomputing"], 
+            timeRecorder["exiterfinish"] - timeRecorder["exiterfinish"]);
 }

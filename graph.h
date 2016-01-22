@@ -15,7 +15,7 @@ struct Graph {
 const Graph graphs[] = {{"small", 10, 10}, {"4elt", 15606, 45878}, 
                     {"mdual", 258569, 513132}};
 const int subgraphNum = 3;      /* 分图之后的子图个数 */
-const int testgraph = 2;        /* 用于测试的图位于上面图数组的序号 */
+const int testgraph   = 2;      /* 用于测试的图位于上面图数组的序号 */
 
 /* 使用MPI并行分图算法 */
 void partitionGraph(gk_graph_t *graph, int nparts) { }

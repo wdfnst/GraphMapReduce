@@ -5,7 +5,6 @@
 /**************************************************************************/
 
 /* 判断是否在控制台打印调试信息 */
-enum LOG {DEBUG, INFO, WARN, ERROR};
 #define INFO   false 
 #define DEBUG  false 
 
@@ -40,7 +39,8 @@ void recordTick(std::string tickname) {
 /* 用于从csr(Compressed Sparse Row)中生成Vertex顶点进行map/reduce */
 /* 用于业务逻辑计算，而非图的表示 */
 struct Vertex {
-    int id, loc, neighborSize, neighbors[512]; float value;
+    int id, loc, neighborSize, neighbors[512], neighborsloc[512];
+    float value, edgewgt[512];
     bool operator==(int key) {
         return this->id == key;
     }
@@ -50,7 +50,7 @@ struct Vertex {
 };
 
 /* 将图中指定id的顶点的值进行更新, 并返回迭代是否结束 */
-int updateGraph(gk_graph_t *graph, std::list<KV> &reduceResult) {
+int updateGraph(graph_t *graph, std::list<KV> &reduceResult) {
     iterationCompleted = 0;
     int i = 0;
     float currentMaxDeviation = 0.0;
@@ -106,7 +106,7 @@ KV reduce(std::list<KV> &kvs) {
 }
 
 /*将单个节点内的顶点映射为Key/value, 对Key排序后，再进行规约*/
-void computing(int rank, gk_graph_t *graph, char *rb, int recvbuffersize) {
+void computing(int rank, graph_t *graph, char *rb, int recvbuffersize) {
     iterationCompleted = 0;
     std::list<KV> kvs;
     Vertex vertex;
@@ -130,16 +130,16 @@ void computing(int rank, gk_graph_t *graph, char *rb, int recvbuffersize) {
     /* 产生的Key/value，只记录本节点的顶点的,采用Bloom Filter验证 */
     recordTick("brecvbuffermap");
     for (int i = 0 ; i < recvbuffersize; ) {
-        int vid, eid, location, eweight, edgenum = 0;
-        float vweight;
+        int vid, eid, location, eloc, edgenum = 0;
+        float fvwgt, fewgt;
         memcpy(&vid, rb + i, sizeof(int));
         memcpy(&location, rb + (i += sizeof(int)), sizeof(int));
-        memcpy(&vweight, rb + (i += sizeof(int)), sizeof(float));
+        memcpy(&fvwgt, rb + (i += sizeof(int)), sizeof(float));
         memcpy(&edgenum, rb + (i += sizeof(float)), sizeof(int));
-        if(DEBUG) printf(" %d %d %f %d ", vid, location, vweight, edgenum);
+        if(DEBUG) printf(" %d %d %f %d ", vid, location, fvwgt, edgenum);
         vertex.id = vid;
         vertex.loc = location;
-        vertex.value = vweight;
+        vertex.value = fvwgt;
         vertex.neighborSize = edgenum;
         i += sizeof(int);
         for (int j = 0; j < edgenum; j++, i += sizeof(int)) {
@@ -148,8 +148,14 @@ void computing(int rank, gk_graph_t *graph, char *rb, int recvbuffersize) {
             vertex.neighbors[j] = eid + 1;
         }
         for (int j = 0; j < edgenum; j++, i += sizeof(int)) {
-            memcpy(&eweight, rb + i, sizeof(int));
-            if(DEBUG) printf(" %d", eweight);
+            memcpy(&eloc, rb + i, sizeof(int));
+            if(DEBUG) printf(" %d", eloc);
+            vertex.neighborsloc[j] = eloc;
+        }
+        for (int j = 0; j < edgenum; j++, i += sizeof(float)) {
+            memcpy(&fewgt, rb + i, sizeof(float));
+            vertex.edgewgt[j] = fewgt;
+            if(DEBUG) printf(" %f", fewgt);
         }
         if(DEBUG) printf("\n");
         map(vertex, kvs);
@@ -189,7 +195,7 @@ int isCompleted(int rank) {
 
 /* 打印计算的过程中的信息: 迭代次数, 各个步骤耗时 */
 void printTimeConsume() {
-    printf("迭代次数-%d, 迭代残余误差-%f, 本次迭代耗时-%f:(%f[exdata] & %f[map] & %f"
+    printf("迭代次数:%d, 迭代残余误差:%f, 本次迭代耗时:%f:(%f[exdata] & %f[map] & %f"
             "[reduce] & %f[updategraph] & %f[computing] & %f[exiterfinish])\n", 
             iterNum, remainDeviation,
             timeRecorder["eexchangeiterfinish"] - timeRecorder["bexchangecounts"],

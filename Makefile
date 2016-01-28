@@ -2,7 +2,7 @@
 #Makefile for simple programs
 ###########################################
 INC= -Iinclude/metis/GKlib/
-LIB= -lstdc++ -Llib -lGKlib
+LIB= -lstdc++ #-Llib -lGKlib
 
 CC= mpic++
 CC_FLAG=-Wall -std=c++11

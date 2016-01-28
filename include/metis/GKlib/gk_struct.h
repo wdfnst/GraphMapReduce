@@ -97,6 +97,7 @@ typedef struct gk_graph_t {
   int32_t *ivsizes;             /*!< The integer vertex sizes */
   float *fvsizes;               /*!< The floating point vertex sizes */
   int32_t *vlabels;             /*!< The labels of the vertices */
+  int32_t *adjloc;             /*!< The location of terminal of edge  */
 } gk_graph_t;
 
 

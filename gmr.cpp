@@ -1,4 +1,7 @@
 #include <iostream>
+#include <fstream>
+#include <sstream>
+#include <string>
 #include <vector>
 #include <list>
 #include <bitset>
@@ -6,13 +9,16 @@
 #include <algorithm>
 #include <numeric>
 #include <stdlib.h> 
+#include <stdarg.h>
 #include <math.h>
 #include <float.h>
 #include <stdio.h> 
 #include <string.h> 
+#include <signal.h>
+#include <unistd.h>
 #include <errno.h> 
-#include <GKlib.h>
 #include "mpi.h"
+#include "error.h"
 #include "graph.h"
 #include "gmr.h"
 
@@ -22,16 +28,17 @@ int main(int argc, char *argv[]) {
     int rank, size, i;
     char *sb = nullptr, *rb = nullptr;
     char subgraphfilename[256];
-    gk_graph_t *graph;
+    graph_t *graph;
     double starttime = MPI_Wtime();
 
+    /* 初始化MPI */
     MPI_Init(&argc,&argv);
     MPI_Comm_rank(MPI_COMM_WORLD,&rank);
     MPI_Comm_size(MPI_COMM_WORLD,&size);
 
     /* 读入子图subgraph-rank */
     sprintf(subgraphfilename, "graph/%s.graph.subgraph.%d", graphs[testgraph].name, rank);
-    graph = gk_graph_Read(subgraphfilename, GK_GRAPH_FMT_METIS, 0, 1, 0);
+    graph = graph_Read(subgraphfilename, GK_GRAPH_FMT_METIS, 1, 1, 0);
     if(INFO) printf("%d 节点和边数: %d %zd\n", rank, graph->nvtxs, graph->xadj[graph->nvtxs]);
     if (DEBUG) displayGraph(graph);
 
@@ -46,6 +53,7 @@ int main(int argc, char *argv[]) {
         memset(sdispls, 0, size * sizeof(int));
         memset(rdispls, 0, size * sizeof(int));
 
+        /* 打印出节点发送缓冲区大小 */
         if(INFO) printf("Process %d send size:", rank);
         for (int i = 0; i < size; i++) {
             if(INFO) printf(" %d\t", sendcounts[i]);
@@ -58,6 +66,7 @@ int main(int argc, char *argv[]) {
                 MPI_COMM_WORLD);
         recordTick("eexchangecounts");
 
+        /* 打印出节点接收到的接收缓冲区大小 */
         if(INFO) printf("Prcess %d recv size:", rank);
         for (int i = 0; i < size; i++) {
             if(INFO) printf(" %d\t", recvcounts[i]);
@@ -75,6 +84,7 @@ int main(int argc, char *argv[]) {
             perror( "can't allocate send buffer" );
             MPI_Abort(MPI_COMM_WORLD,EXIT_FAILURE); 
         }
+        /* 计算发送和接收缓冲区偏移 */
         for (int i = 1; i != size; i++) {
             sdispls[i] += (sdispls[i - 1] + sendcounts[i - 1]);
             rdispls[i] += (rdispls[i - 1] + recvcounts[i - 1]);
@@ -97,21 +107,28 @@ int main(int argc, char *argv[]) {
         recvBytes += rbsize;
         if (DEBUG) printf("Process %d recv:", rank);
         for ( i = 0 ; i < rbsize; ) {
-            int vid, eid, location, eweight, edgenum = 0;
-            float vweight;
+            int vid, eid, location, eloc, edgenum = 0;
+            float fewgt, fvwgt;
             memcpy(&vid, rb + i, sizeof(int));
             memcpy(&location, rb + (i += sizeof(int)), sizeof(int));
-            memcpy(&vweight, rb + (i += sizeof(int)), sizeof(float));
+            memcpy(&fvwgt, rb + (i += sizeof(int)), sizeof(float));
             memcpy(&edgenum, rb + (i += sizeof(float)), sizeof(int));
-            if(DEBUG) printf(" %d %d %f %d ", vid, location, vweight, edgenum);
+            if(DEBUG) printf(" %d %d %f %d ", vid, location, fvwgt, edgenum);
             i += sizeof(int);
+            /* 读取边的另外一个顶点 */
             for (int j = 0; j < edgenum; j++, i += sizeof(int)) {
                 memcpy(&eid, rb + i, sizeof(int));
                 if(DEBUG) printf(" %d", eid + 1);
             }
+            /* 读取边的另外一个顶点所在的节点 */
             for (int j = 0; j < edgenum; j++, i += sizeof(int)) {
-                memcpy(&eweight, rb + i, sizeof(int));
-                if(DEBUG) printf(" %d", eweight);
+                memcpy(&eloc, rb + i, sizeof(int));
+                if(DEBUG) printf(" %d", eloc);
+            }
+            /* 读取边的权重 */
+            for (int j = 0; j < edgenum; j++, i += sizeof(float)) {
+                memcpy(&fewgt, rb + i, sizeof(float));
+                if(DEBUG) printf(" %f", fewgt);
             }
             if(DEBUG) printf(" %d / %d\n", i, rbsize);
         }
@@ -137,7 +154,7 @@ int main(int argc, char *argv[]) {
         printTimeConsume();
     }
     MPI_Finalize();
-    gk_graph_Free(&graph);
+    graph_Free(&graph);
     printf("程序运行结束,总共耗时:%f secs, 通信量:%ld Byte, 最大消耗内存:(未统计)Byte\n", 
             MPI_Wtime() - starttime, recvBytes);
 }

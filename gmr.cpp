@@ -21,6 +21,7 @@
 #include "error.h"
 #include "graph.h"
 #include "gmr.h"
+#include "algorithms.h"
 
 using namespace std;
 
@@ -30,6 +31,9 @@ int main(int argc, char *argv[]) {
     char subgraphfilename[256];
     graph_t *graph;
     double starttime = MPI_Wtime();
+
+    /* 用到的算法的实例 */
+    GMR *pagerank_gmr = new PageRank();
 
     /* 初始化MPI */
     MPI_Init(&argc,&argv);
@@ -136,7 +140,7 @@ int main(int argc, char *argv[]) {
 
         /*合并其他节点传递过来的顶点，计算并判断是否迭代结束*/
         recordTick("bcomputing");
-        computing(rank, graph, rb, rbsize); 
+        computing(rank, graph, rb, rbsize, pagerank_gmr); 
         recordTick("ecomputing");
         free(sb); free(rb);
         MPI_Barrier(MPI_COMM_WORLD);

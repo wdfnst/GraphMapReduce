@@ -49,6 +49,21 @@ struct Vertex {
     }
 };
 
+/****************************************************
+ * 该类用于定于MapReduce操作的基类
+ * *************************************************/
+class GMR {
+public:
+    /* Map/Reduce编程模型中的Map函数 */
+    virtual void map(Vertex &v, std::list<KV> &kvs) = 0;
+
+    /* 用于将Map/Reduce计算过程中产生的KV list进行排序 */
+    virtual void sort(std::list<KV> &kvs) = 0;
+
+    /* Map/Reduce编程模型中的Reduce函数 */
+    virtual KV reduce(std::list<KV> &kvs) = 0;
+};
+
 /* 将图中指定id的顶点的值进行更新, 并返回迭代是否结束 */
 int updateGraph(graph_t *graph, std::list<KV> &reduceResult) {
     iterationCompleted = 0;
@@ -62,6 +77,7 @@ int updateGraph(graph_t *graph, std::list<KV> &reduceResult) {
         else {
             /* 计算误差，并和老值进行比较, 判断迭代是否结束 */
             float deviation = fabs(iter->value - graph->fvwgts[i]);
+            /* TODO: 根据当前顶点的状态, 判断迭代是否结束 */
             if (deviation > threshold) {
                 if (deviation > currentMaxDeviation) currentMaxDeviation = deviation;
                 if(INFO) printf("迭代误差: fasb(%f - %f) = %f\n", iter->value,
@@ -80,33 +96,8 @@ int updateGraph(graph_t *graph, std::list<KV> &reduceResult) {
     return iterationCompleted;
 }
 
-/* Map/Reduce编程模型中的Map函数 */
-void map(Vertex &v, std::list<KV> &kvs) {
-    if(DEBUG) printf("get in the map function.\n");
-    float value = v.value / v.neighborSize;
-    for (int i = 0; i < v.neighborSize; i++) {
-        kvs.push_back({v.neighbors[i], value});
-        if(DEBUG) printf("%d %f\n", v.neighbors[i], value);
-    }
-}
-
-/* 用于将Map/Reduce计算过程中产生的KV list进行排序 */
-void sort(std::list<KV> &kvs) { }
-
-/* Map/Reduce编程模型中的Reduce函数 */
-KV reduce(std::list<KV> &kvs) {
-    float sum = 0.0;
-    for (auto kv : kvs) {
-        sum += kv.value;
-    }
-    /*Pagerank=a*(p1+p2+…Pm)+(1-a)*1/n，其中m是指向网页j的网页j数，n所有网页数*/
-    sum = 0.5 * sum + (1 - 0.5) / graphs[testgraph].nvtx; 
-    if (DEBUG) printf("reduce result: %d %f\n", kvs.front().key, sum);
-    return {kvs.front().key, sum};
-}
-
 /*将单个节点内的顶点映射为Key/value, 对Key排序后，再进行规约*/
-void computing(int rank, graph_t *graph, char *rb, int recvbuffersize) {
+void computing(int rank, graph_t *graph, char *rb, int recvbuffersize, GMR *gmr) {
     iterationCompleted = 0;
     std::list<KV> kvs;
     Vertex vertex;
@@ -122,7 +113,7 @@ void computing(int rank, graph_t *graph, char *rb, int recvbuffersize) {
              * 所以需要在顶点原值的基础上加1 */
             vertex.neighbors[neighbor_sn++] = graph->adjncy[j] + 1;
         }
-        map(vertex, kvs);
+        gmr->map(vertex, kvs);
     }
     recordTick("egraphmap");
 
@@ -158,7 +149,7 @@ void computing(int rank, graph_t *graph, char *rb, int recvbuffersize) {
             if(DEBUG) printf(" %f", fewgt);
         }
         if(DEBUG) printf("\n");
-        map(vertex, kvs);
+        gmr->map(vertex, kvs);
     }
     recordTick("erecvbuffermap");
 
@@ -172,13 +163,13 @@ void computing(int rank, graph_t *graph, char *rb, int recvbuffersize) {
     std::list<KV> reduceResult;
     for (KV kv : kvs) {
         if(sameKeylist.size() > 0 && kv.key != sameKeylist.front().key) {
-            KV tmpkv = reduce(sameKeylist);
+            KV tmpkv = gmr->reduce(sameKeylist);
             reduceResult.push_back(tmpkv);
             sameKeylist.clear();
         }
         sameKeylist.push_back(kv);
     }
-    reduceResult.push_back(reduce(sameKeylist));
+    reduceResult.push_back(gmr->reduce(sameKeylist));
     sameKeylist.clear();
     recordTick("ereduce");
 

@@ -21,7 +21,7 @@ const Graph graphs[] = {{"small", 10, 10}, {"4elt", 15606, 45878},
 /* 分图之后的子图个数 */
 const int subgraphNum = 3;
 /* 用于测试的图位于上面图数组的序号 */
-const int testgraph   = 0;
+const int testgraph   = 2;
 
 /*-------------------------------------------------------------
  * The following data structure stores a sparse graph 

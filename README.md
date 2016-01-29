@@ -1,16 +1,14 @@
 #GraphMapReduce: 基于MapReduce编程模型的图计算框架
 
-(名词约束: 顶点Vertex-图中顶点;节点Process-计算单元节点),目录说明:
-代码主要包含四个文件: gmr.cpp gmr.h algorithms.h graph.h
-|_graph/   #此目录包含测试用的图例数据<br>
+(名词约束: 顶点Vertex-图中顶点;节点Process-计算单元节点),目录说明:     
+代码主要包含四个文件: gmr.cpp gmr.h algorithms.h graph.h     
+|_graph/   #此目录包含测试用的图例数据<br>     
 |_include/ #此目录包含所使用到的第三方库的头文件(目前只用到了ParMetis，去掉了GKlib)     
-|_lib/     #包含了使用到的第三方库
-|_*gmr.cpp*  #程序的main函数入口和迭代循环
-|_gmr.h    #包含主要的计算过程函数computing()和计算结果更新函数updateGraph()
-
-|_algorithm.h   #常用图算法的MapReduce实现
-
-|_graph.h       #定义了图数据结果和常用的集中图操作函数
+|_lib/     #包含了使用到的第三方库     
+|_*gmr.cpp*  #程序的main函数入口和迭代循环     
+|_gmr.h    #包含主要的计算过程函数computing()和计算结果更新函数updateGraph()     
+|_algorithm.h   #常用图算法的MapReduce实现     
+|_graph.h       #定义了图数据结果和常用的集中图操作函数     
 ## 一. 框架的基础
 #### 1. MPI:
 结算节点之间通信通过MPI实现；

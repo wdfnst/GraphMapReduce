@@ -4,9 +4,9 @@
 
 
 > 代码主要包含四个文件: gmr.cpp gmr.h algorithms.h graph.h     
-> |__graph/--------#此目录包含测试用的图例数据     
-> |__include/------#此目录包含所使用到的第三方库的头文件(目前只用到了ParMetis，去掉了GKlib)     
-> |__lib/-----------#包含了使用到的第三方库     
+> |__graph/---------#此目录包含测试用的图例数据     
+> |__include/-------#此目录包含所使用到的第三方库的头文件(目前只用到了ParMetis，去掉了GKlib)     
+> |__lib/------------#包含了使用到的第三方库     
 > |__gmr.cpp------#程序的main函数入口和迭代循环     
 > |__gmr.h---------#包含主要的计算过程函数computing()和计算结果更新函数updateGraph()     
 > |__algorithm.h---#常用图算法的MapReduce实现     

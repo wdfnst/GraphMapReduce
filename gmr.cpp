@@ -26,13 +26,14 @@
 using namespace std;
 
 int main(int argc, char *argv[]) {
+    /* rank, size: MPI进程序号和进程数, sb: 发送缓存, rb: 接收缓存 */
     int rank, size, i;
     char *sb = nullptr, *rb = nullptr;
-    char subgraphfilename[256];
-    graph_t *graph;
     double starttime = MPI_Wtime();
 
-    /* 用到的算法的实例 */
+    /* 子图文件和用到的图算法实现类 */
+    char subgraphfilename[256];
+    graph_t *graph;
     GMR *pagerank_gmr = new PageRank();
 
     /* 初始化MPI */
@@ -40,19 +41,26 @@ int main(int argc, char *argv[]) {
     MPI_Comm_rank(MPI_COMM_WORLD,&rank);
     MPI_Comm_size(MPI_COMM_WORLD,&size);
 
-    /* 读入子图subgraph-rank */
-    sprintf(subgraphfilename, "graph/%s.graph.subgraph.%d", graphs[testgraph].name, rank);
+    /* allothersendcounts: 
+     * 接收所有进程发送数据的大小, 用于判断迭代结束(若所有进程都无数据需要发送)
+     * sendcounts, recvcounts: 数据发送和接收缓冲区
+     * sdispls, rdispls: 发送和接收数据缓冲区的偏移 */
+    int *allothersendcounts = (int*)malloc(size * size * sizeof(int));
+    int *sendcounts         = NULL;
+    int *recvcounts         = (int*)malloc(size * sizeof(int));
+    int *sdispls            = (int*)malloc(size * sizeof(int));
+    int *rdispls            = (int*)malloc(size * sizeof(int));
+
+    /* 根据进程号, 拼接子图文件名, 并读取子图到结构体graph中 */
+    sprintf(subgraphfilename, "graph/small.graph.subgraph.%d", rank);
     graph = graph_Read(subgraphfilename, GK_GRAPH_FMT_METIS, 1, 1, 0);
+    ntxs = graph->nvtxs;
     if(INFO) printf("%d 节点和边数: %d %zd\n", rank, graph->nvtxs, graph->xadj[graph->nvtxs]);
     if (DEBUG) displayGraph(graph);
 
-    int endflag = 1;
-    while(endflag){
-        /* 定义用于缓存向各节点发送数据数量和偏移的数组 */
-        int *sendcounts = getSendBufferSize(graph, size, rank);
-        int *recvcounts = (int*)malloc(size * sizeof(int));
-        int *sdispls = (int*)malloc(size * sizeof(int));
-        int *rdispls = (int*)malloc(size * sizeof(int));
+    while(true && iterNum < MAX_ITERATION){
+        sendcounts = getSendBufferSize(graph, size, rank);
+        memset(allothersendcounts, 0, size * size * sizeof(int));
         memset(recvcounts, 0, size * sizeof(int));
         memset(sdispls, 0, size * sizeof(int));
         memset(rdispls, 0, size * sizeof(int));
@@ -64,10 +72,14 @@ int main(int argc, char *argv[]) {
         }
         if(INFO) printf("\n");
         
-        /* 进行两轮alltoall(alltoallv). 第一次同步需要交换数据的空间大小, 第二次交换数据 */
+        /* 如果每个节点发向其他所有节点的数据大小都为0, 则迭代结束 */
         recordTick("bexchangecounts");
-        MPI_Alltoall(sendcounts, 1, MPI_INT, recvcounts, 1, MPI_INT, 
-                MPI_COMM_WORLD);
+        MPI_Allgather(sendcounts, size, MPI_INT, allothersendcounts, size,
+                MPI_INT, MPI_COMM_WORLD); 
+        if (accumulate(allothersendcounts, allothersendcounts + size, 0) == 0) break;
+        /* 将本节点接收缓存区大小拷贝到recvcounts中 */
+        for (int i = 0; i < size; i++)
+            recvcounts[i] = allothersendcounts[rank + i * size];
         recordTick("eexchangecounts");
 
         /* 打印出节点接收到的接收缓冲区大小 */
@@ -99,7 +111,7 @@ int main(int argc, char *argv[]) {
         sb = getSendbuffer(graph, sendcounts, sdispls, size, rank);
         recordTick("egetsendbuffer");
 
-        /* 执行MPI_Alltoall 调用*/
+        /* 调用MPIA_Alltoallv(), 交换数据 */
         recordTick("bexchangedata");
         MPI_Alltoallv(sb, sendcounts, sdispls, MPI_CHAR, rb, recvcounts, rdispls, MPI_CHAR, 
                 MPI_COMM_WORLD);
@@ -108,7 +120,7 @@ int main(int argc, char *argv[]) {
         /*从其他子图传过来的子图,应该更新到本子图上,然后计算本子图信息*/
         /*处理从别的节点传过来的数据(邻居节点), 并更新本地数据*/
         int rbsize = accumulate(recvcounts, recvcounts + size, 0);
-        recvBytes += rbsize;
+        totalRecvBytes += rbsize;
         if (DEBUG) printf("Process %d recv:", rank);
         for ( i = 0 ; i < rbsize; ) {
             int vid, eid, location, eloc, edgenum = 0;
@@ -144,21 +156,17 @@ int main(int argc, char *argv[]) {
         recordTick("ecomputing");
         free(sb); free(rb);
         MPI_Barrier(MPI_COMM_WORLD);
+        recordTick("eiteration");
 
-        /* 相互收集其他节点是否迭代结束 */
-        int iterationCompleted = isCompleted(rank);
-        int *rbuf = (int *)malloc(size * sizeof(int));
-        recordTick("bexchangeiterfinish");
-        MPI_Allgather(&iterationCompleted, 1, MPI_INT, rbuf, 1, MPI_INT, MPI_COMM_WORLD);
-        recordTick("eexchangeiterfinish");
-        endflag = accumulate(rbuf, rbuf + size, 0);
-        free(rbuf);
+        /* 释放内存, 并打印迭代信息 */
+        free(sendcounts);
         iterNum++;
-        if(INFO) printf("迭代次数:%d ~ 迭代未结束节点:%d\n", iterNum, endflag);
         printTimeConsume();
     }
     MPI_Finalize();
     graph_Free(&graph);
+    if (sdispls) free(sdispls); if(rdispls) free(rdispls); // if(sendcounts) free(sendcounts); 
+    if (recvcounts) free(recvcounts); if(allothersendcounts) free(allothersendcounts);
     printf("程序运行结束,总共耗时:%f secs, 通信量:%ld Byte, 最大消耗内存:(未统计)Byte\n", 
-            MPI_Wtime() - starttime, recvBytes);
+            MPI_Wtime() - starttime, totalRecvBytes);
 }

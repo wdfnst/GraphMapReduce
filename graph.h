@@ -1,27 +1,22 @@
 /*************************************************************************/
-/*! 此文件主要用来定义与图操作相关的函数，如:
+/*! 此文件主要用来定义与图操作相关的函数和变常量，如:
+ * 变常量: 子图个数, 当前使用的子图的定点数、边数
  * 分图、图显示、计算发送顶点缓存大小
 */
 /**************************************************************************/
 
-#define LTERM                   (void **) 0     /* List terminator for GKfree() */
+/* List terminator for GKfree() */
+#define LTERM                   (void **) 0
 #define GK_GRAPH_FMT_METIS      1
-#define SIGERR  SIGTERM
 
-/* 用于定义测试的整图信息(非子图), 分图之前的整图信息 */
-struct Graph {
-    char name[256];         /*! 图的名字(也是图文件名字) */
-    size_t nvtx;            /*! 图的顶点数 */
-    size_t nedge;           /*! 图的边数 */
-};
-
-/* 用于测试的图 */
-const Graph graphs[] = {{"small", 10, 10}, {"4elt", 15606, 45878}, 
-                    {"mdual", 258569, 513132}};
-/* 分图之后的子图个数 */
+/* subgraphNum: 子图个数
+ * ntxs:        当前使用的子图中顶点数
+ * nedges:      当前使用的子图边条数
+ * NODE_STATUS: 顶点状态 */
 const int subgraphNum = 3;
-/* 用于测试的图位于上面图数组的序号 */
-const int testgraph   = 2;
+int ntxs = 0;
+int nedges = 0;
+enum NODE_STATUS {active, inactive};
 
 /*-------------------------------------------------------------
  * The following data structure stores a sparse graph 
@@ -37,7 +32,8 @@ typedef struct graph_t {
   int32_t *ivsizes;             /*!< The integer vertex sizes */
   float *fvsizes;               /*!< The floating point vertex sizes */
   int32_t *vlabels;             /*!< The labels of the vertices */
-  int32_t *adjloc;             /*!< The location of terminal of edge  */
+  int32_t *adjloc;              /*!< The location of terminal of edge */
+  int32_t *status;              /*!< The status of vertex */
 } graph_t;
 
 /* 使用MPI并行分图算法 */
@@ -101,7 +97,8 @@ void graph_FreeContents(graph_t *graph)
           &graph->iadjwgt, &graph->fadjwgt,
           &graph->ivwgts, &graph->fvwgts,
           &graph->ivsizes, &graph->fvsizes,
-          &graph->vlabels, 
+          &graph->vlabels, &graph->adjloc,
+          &graph->status,
           LTERM);
 }
 
@@ -138,6 +135,7 @@ graph_t *graph_Read(std::string filename, int format, int isfewgts,
     char fmtstr[256];
     graph_t *graph=NULL;
 
+    /* 打开并判断文件状态, 过滤掉注释行 */
     std::ifstream fin(filename, std::ifstream::in);
     if (!fin.good()) {
         errexit(SIGINT, "Open file failed.\n");
@@ -149,15 +147,16 @@ graph_t *graph_Read(std::string filename, int format, int isfewgts,
             break;
     }
 
+    /* 读取子图文件的头信息: 定点数,边数及图文件格式 */
     fmt = ncon = 0;
     std::istringstream iss(line);
     iss >> nvtxs >> nedges >> fmt >> ncon;
     if (nvtxs <= 0 || nedges <= 0)
         errexit(SIGINT, "Header line must contain at least 2 integers (#vtxs and #edges).\n");
-
     if (fmt > 1111)
         errexit(SIGERR, "Cannot read this type of file format fmt!\n");
 
+    /* 根据子图文件中记录的图格式, 实例化变量以待用 */
     sprintf(fmtstr, "%04zu", fmt%10000);
     readsizes   = (fmtstr[0] == '1');
     readwgts    = (fmtstr[1] == '1');
@@ -166,10 +165,12 @@ graph_t *graph_Read(std::string filename, int format, int isfewgts,
     numbering   = 1;
     ncon        = (ncon == 0 ? 1 : ncon);
 
+    /* 创建图结构体, 并申请图中数据所用到的空间 */
     graph = graph_Create();
     graph->nvtxs = nvtxs;
     graph->xadj   = (ssize_t*)malloc(sizeof(ssize_t) * (nvtxs+1));
     graph->adjncy = (int32_t*)malloc(sizeof(int32_t) * nedges);
+    graph->status = (int32_t*)malloc(sizeof(int32_t) * nvtxs);
     if (readvals) {
         if (isfewgts)
             graph->fadjwgt = (float*)malloc(sizeof(float) * nedges);
@@ -177,23 +178,24 @@ graph_t *graph_Read(std::string filename, int format, int isfewgts,
             graph->iadjwgt = (int32_t*)malloc(sizeof(int32_t) * nedges);
     }
 
-  if (readsizes) {
-    if (isfvsizes)
-      graph->fvsizes = (float*)malloc(sizeof(float) * nvtxs);
-    else
-      graph->ivsizes = (int32_t*)malloc(sizeof(int32_t) * nvtxs);
-  }
-
-  if (readwgts) {
-    if (isfvwgts)
-      graph->fvwgts = (float*)malloc(sizeof(float) * nvtxs*ncon);
-    else
-      graph->ivwgts = (int32_t*)malloc(sizeof(int32_t) * nvtxs*ncon);
-  }
-
-  if (readedgeloc) {
-      graph->adjloc = (int32_t*)malloc(sizeof(int32_t) * nedges);
-  }
+    /* 判断图vsize数据类型, 实际上重用为记录顶点的id */
+    if (readsizes) {
+        if (isfvsizes)
+            graph->fvsizes = (float*)malloc(sizeof(float) * nvtxs);
+        else
+            graph->ivsizes = (int32_t*)malloc(sizeof(int32_t) * nvtxs);
+    }
+    /* 判断顶点权重数据类型, 并申请存储空间 */
+    if (readwgts) {
+        if (isfvwgts)
+            graph->fvwgts = (float*)malloc(sizeof(float) * nvtxs*ncon);
+        else
+            graph->ivwgts = (int32_t*)malloc(sizeof(int32_t) * nvtxs*ncon);
+    }
+    /* 判断是否存储了顶点所在的节点, 并申请存储空间 */
+    if (readedgeloc) {
+        graph->adjloc = (int32_t*)malloc(sizeof(int32_t) * nedges);
+    }
 
   /*----------------------------------------------------------------------
    * Read the sparse graph file
@@ -208,6 +210,9 @@ graph_t *graph_Read(std::string filename, int format, int isfewgts,
     size_t vid, eid, eloc;
     int ivwgt, iewgt;
     float fvwgt, fewgt;
+
+    /* 默认状态下顶点的状态为active */
+    graph->status[i] = active;
 
     /* Read vertex sizes */
     if (readsizes) {
@@ -322,6 +327,8 @@ int *getSendBufferSize(const graph_t *graph, const int psize, const int rank) {
     memset(sendcounts, 0, psize * sizeof(int));
     /* 先遍历一次需要发送的数据，确定需要和每个节点交换的数据 */
     for (int i=0; i<graph->nvtxs; i++) {
+        /* 如果当前顶点vertex为iactive, 则不用发送 */
+        if (graph->status[i] == inactive) continue;
         /* 记录当前节点向外发送时，所需要的缓存大小 */
         int currentVertexSize = 0;
         // id, loc, weight of vertex
@@ -363,6 +370,8 @@ char *getSendbuffer(graph_t *graph, int *sendcounts, int *sdispls,
     int *offsets = (int*)malloc(psize * sizeof(int));
     memset(offsets, 0, psize * sizeof(int));
     for (int i=0; i<graph->nvtxs; i++) {
+        /* 如果当前顶点vertex为iactive, 则不用发送 */
+        if (graph->status[i] == inactive) continue;
         /* record the size of current vertex */
         int currentVertexSize = 0;
         // accumulate the size of id, loc, weight of vertex
@@ -388,12 +397,6 @@ char *getSendbuffer(graph_t *graph, int *sendcounts, int *sdispls,
                 neighborNum * sizeof(int));
         memcpy(vertex + (3 + neighborNum) * sizeof(int) + sizeof(float), 
                 &(graph->adjloc[graph->xadj[i]]), neighborNum * sizeof(int));
-
-//         printf("send:%d %d %f %d", graph->ivsizes[i], rank, graph->fvwgts[i], neighborNum);
-//         for (int r = 0; r < neighborNum; r++)
-//             printf(" %d %d %f", graph->adjncy[graph->xadj[i] + r], 
-//                     graph->adjloc[graph->xadj[i] + r], graph->fadjwgt[graph->xadj[i] + r]);
-//         printf("\n");
 
         /* 将顶点的边的权重weight拷贝进发送缓存 */
         if (graph->iadjwgt) 

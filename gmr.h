@@ -1,6 +1,6 @@
 /*************************************************************************/
-/*! 此文件主要用来定义与业务逻辑计算相关的函数，如:
- * map、reduce函数, 调度入口函数computing()
+/*! 此文件主要用来定义调度业务逻辑的调度函数:
+ * computing(), updateGraph()
 */
 /**************************************************************************/
 
@@ -8,22 +8,23 @@
 #define INFO   false 
 #define DEBUG  false 
 
-/* 记录一次迭代中,各个步骤消耗的时间 */
+/* timerRecorder:  迭代步的各个子过程耗时
+ * totalRecvBytes: 目前为止, 接收到的字节数
+ * maxMemory:      目前为止, 消耗的最大内存 */
 std::map<std::string, double> timeRecorder;
-/* 记录程序运行过程中的接收的字节数 */
-long recvBytes = 0;
+long totalRecvBytes = 0;
+long totalMaxMem    = 0;
 
-/* 迭代结束标志:0表示还有元素没有达到迭代结束条件, 
- * 默认表示都达到迭代结束条件 */
-int iterationCompleted = 0;
-/* 迭代要求精度 */
+/* threahold:       迭代精度
+ * remainDeviation: 当前迭代步的残余误差
+ * iterNum:         当目前为止, 迭代的次数
+ * MAX_ITERATION:   系统允许的最大迭代次数 */
 float threshold = 0.0001;
-/* 当前迭代残余误差 */
 float remainDeviation = FLT_MAX;
-/* 迭代次数计数器 */
 int iterNum = 0;
+int MAX_ITERATION = 10000;
 
-/* Map/Reduce编程模型中的键值对,用于作为Map输出和Reduce输入输出*/
+/* Map/Reduce编程模型中的键值对,用于作为Map输出和Reduce输入输出 */
 struct KV {
     int key; float value;
     bool operator==(int key) {
@@ -65,25 +66,26 @@ public:
 };
 
 /* 将图中指定id的顶点的值进行更新, 并返回迭代是否结束 */
-int updateGraph(graph_t *graph, std::list<KV> &reduceResult) {
-    iterationCompleted = 0;
+void updateGraph(graph_t *graph, std::list<KV> &reduceResult) {
     int i = 0;
     float currentMaxDeviation = 0.0;
     auto iter = reduceResult.begin();
+    /* 将reduceResult中id与graph中vertex.id相同key值更新到vertex.value */
     while (i < graph->nvtxs && iter != reduceResult.end() ) {
-        /* 因为reduceResult中的Key包含了所有的子图中的vertex id
-         * 所以一旦不等则是reduceResult中过多,直接进行递增即可 */
-        if (iter->key != graph->ivsizes[i]) iter++;
+        if (iter->key > graph->ivsizes[i]) i++;
+        else if (graph->ivsizes[i] > iter->key) iter++;
         else {
             /* 计算误差，并和老值进行比较, 判断迭代是否结束 */
             float deviation = fabs(iter->value - graph->fvwgts[i]);
-            /* TODO: 根据当前顶点的状态, 判断迭代是否结束 */
+            /* 与老值进行比较, 如果变化小于threhold,则将vertex.status设置为inactive */
             if (deviation > threshold) {
                 if (deviation > currentMaxDeviation) currentMaxDeviation = deviation;
                 if(INFO) printf("迭代误差: fasb(%f - %f) = %f\n", iter->value,
                         graph->fvwgts[i], fabs(iter->value - graph->fvwgts[i]));
-                iterationCompleted = 1;
+                graph->status[i] = active;
             }
+            else
+                graph->status[i] = inactive;
             graph->fvwgts[i] = iter->value;
             i++; iter++;
         }
@@ -92,13 +94,10 @@ int updateGraph(graph_t *graph, std::list<KV> &reduceResult) {
     /* 如果当前误差小于全局残余误差则更新全局残余误差 */
     if (currentMaxDeviation < remainDeviation) remainDeviation = currentMaxDeviation;
     if(INFO) printf("迭代残余误差: %f\n", remainDeviation);
-
-    return iterationCompleted;
 }
 
 /*将单个节点内的顶点映射为Key/value, 对Key排序后，再进行规约*/
 void computing(int rank, graph_t *graph, char *rb, int recvbuffersize, GMR *gmr) {
-    iterationCompleted = 0;
     std::list<KV> kvs;
     Vertex vertex;
 
@@ -179,21 +178,15 @@ void computing(int rank, graph_t *graph, char *rb, int recvbuffersize, GMR *gmr)
     recordTick("eupdategraph");
 }
 
-/* 返回迭代是否结束 */
-int isCompleted(int rank) {
-    return iterationCompleted;    
-}
-
 /* 打印计算的过程中的信息: 迭代次数, 各个步骤耗时 */
 void printTimeConsume() {
     printf("迭代次数:%d, 迭代残余误差:%f, 本次迭代耗时:%f:(%f[exdata] & %f[map] & %f"
-            "[reduce] & %f[updategraph] & %f[computing] & %f[exiterfinish])\n", 
+            "[reduce] & %f[updategraph] & %f[computing])\n", 
             iterNum, remainDeviation,
-            timeRecorder["eexchangeiterfinish"] - timeRecorder["bexchangecounts"],
+            timeRecorder["eiteration"] - timeRecorder["bexchangecounts"],
             timeRecorder["eexchangedata"] - timeRecorder["bexchangedata"],
             timeRecorder["erecvbuffermap"] - timeRecorder["bgraphmap"],
             timeRecorder["ereduce"] - timeRecorder["breduce"], 
             timeRecorder["eupdategraph"] - timeRecorder["bupdategraph"], 
-            timeRecorder["ecomputing"] - timeRecorder["bcomputing"], 
-            timeRecorder["exiterfinish"] - timeRecorder["exiterfinish"]);
+            timeRecorder["ecomputing"] - timeRecorder["bcomputing"]);
 }

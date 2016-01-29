@@ -23,7 +23,7 @@ public:
             sum += kv.value;
         }
         /*Pagerank=a*(p1+p2+…Pm)+(1-a)*1/n，其中m是指向网页j的网页j数，n所有网页数*/
-        sum = 0.5 * sum + (1 - 0.5) / graphs[testgraph].nvtx; 
+        sum = 0.5 * sum + (1 - 0.5) / ntxs; 
         if (DEBUG) printf("reduce result: %d %f\n", kvs.front().key, sum);
         return {kvs.front().key, sum};
     }
@@ -59,7 +59,6 @@ public:
         if (DEBUG) printf("reduce result: %d %f\n", kvs.front().key, shortestPath);
         return {kvs.front().key, shortestPath};
     }
-    /* 判断迭代是否结束: 全部变为inactive状态 */
 };
 
 /****************************************************

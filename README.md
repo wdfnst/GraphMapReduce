@@ -20,7 +20,19 @@
 #### 3. 图划分:
 为了将整图的不同部分放到不同的计算节点进行并行计算，需要将整划分为若干子图。本框架中每个子图包含三个部分{inners, borders, neighbors}, inners表示子图内与其他子图没有连接的顶点；borders表示子图内与其他子图又连接的顶点；neighbors表示子图外与本子图连接的顶点。
 
-## 二、迭代计算过程
+## 二、 编译和运行
+### 1. (not mandatory)切图
+切图采用了metis库，其源码和说明位于include/metis中，其编译使用可参考include/metis/README.md.
+已经有切好的例图，位于graph/下。
+
+### 2. 编译gmr
+make clean && make
+
+### 3. 运行
+mpirun -np 3(注:进程数) ./gmr
+> 注: 目前正在移植Parmetis(MPI-based)分图部分代码, 所以暂时只能运行graph/已经分好的例图。因为例图都被分为了三个子图，所以目前只能运行三个MPI进程。
+
+## 三、迭代计算过程
 #### 1. 数据交换:
 第一步,先遍历自己计算的子图graph与其他子图的邻居情况,并收集需要向其他节点发送的字节数,并申请发送缓冲区;
 
@@ -35,17 +47,6 @@
 #### 4. 计算2th/2:reduce
 将排序好的key/value list按照业务逻辑函数reduce进行规约.
 #### 5. 将reduce计算的结果更新到graph中
-
-## 三. 编译和运行
-### 1. (not mandatory)切图
-切图采用了metis库，其源码和说明位于include/metis中，其编译使用可参考include/metis/README.md.
-已经有切好的例图，位于graph/下。
-
-### 2. 编译gmr
-make clean && make
-
-### 3. 运行
-mpirun -np graph_nparts ./gmr
 
 ## 四. 例子
 ### 4.1 PageRank

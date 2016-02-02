@@ -13,14 +13,7 @@
 > |__graph.h-------#定义了图数据结果和常用的集中图操作函数   
  
 
-## 一. 框架的基础
-#### 1. MPI:
-结算节点之间通信通过MPI实现；
-#### 2. MapReduce编程模型
-#### 3. 图划分:
-为了将整图的不同部分放到不同的计算节点进行并行计算，需要将整划分为若干子图。本框架中每个子图包含三个部分{inners, borders, neighbors}, inners表示子图内与其他子图没有连接的顶点；borders表示子图内与其他子图又连接的顶点；neighbors表示子图外与本子图连接的顶点。
-
-## 二、 编译和运行
+## 一、 编译和运行
 ### 1. (not mandatory)切图
 切图采用了metis库，其源码和说明位于include/metis中，其编译使用可参考include/metis/README.md.
 已经有切好的例图，位于graph/下。
@@ -31,6 +24,17 @@ make clean && make
 ### 3. 运行
 mpirun -np 3(注:进程数) ./gmr
 > 注: 目前正在移植Parmetis(MPI-based)分图部分代码, 所以暂时只能运行graph/已经分好的例图。因为例图都被分为了三个子图，所以目前只能运行三个MPI进程。
+
+## 二. 框架的基础
+#### 1. MPI:
+结算进程之间通信通过MPI实现；
+#### 2. MapReduce编程模型
+#### 3. 图划分:
+为了将全图的不同部分放到不同的计算节点进行并行计算，需要将整划分为若干子图。划分工具采用开源的Parmetis进行(为方便使用，正在进行整合)。Parmetis是基于MPI进行大规模的子图划分，为了方便和适应我们的算法，我们对Parmetis的输出结果进行了重写，每个输出的节点的格式如下:
+```
+#节点id    节点权重       邻居1的id  邻居1所在进程        邻居1所在边权重 ...邻居N的id  邻居N所在进程        邻居N所在边权重
+vertex_id vertex_weight neighbor1 neighbor1.location edge1.weight ... neighborN neighborN.location edgeN.weight
+```
 
 ## 三、迭代计算过程
 #### 1. 数据交换:

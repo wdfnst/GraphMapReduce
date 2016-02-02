@@ -14,7 +14,7 @@
  
 
 ## 一、 编译和运行
-### 1. (not mandatory)切图
+### 1. (non-mandatory)切图
 切图采用了metis库，其源码和说明位于include/metis中，其编译使用可参考include/metis/README.md.
 已经有切好的例图，位于graph/下。
 
@@ -107,9 +107,9 @@ KV reduce(std::list<KV> &kvs) {
 ### 4.4 二度人脉算法:广度搜索算法
 
 ## 五、对比实验
-Processor\Platform |   GMR      |    Spark      |   GraphX       |    GraphLab      |     Pregel  |
-      1            |            |               |                |                  |             |
-      3            |            |               |                |                  |             |
-      8            |            |               |                |                  |             |
-      16           |            |               |                |                  |             |
-      64           |            |               |                |                  |             |
+Processor\Platform |   GMR      |    Spark      |   GraphX       |    GraphLab      |     Pregel  |   
+      1            |            |               |                |                  |             |   
+      3            |            |               |                |                  |             |   
+      8            |            |               |                |                  |             |   
+      16           |            |               |                |                  |             |   
+      64           |            |               |                |                  |             |   

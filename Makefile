@@ -1,18 +1,15 @@
 ###########################################
 #Makefile for simple programs
 ###########################################
-INC= -Iinclude/metis/GKlib/
-LIB= -lstdc++ #-Llib -lGKlib
+INC= 
+LIB= -lstdc++ 
 CC= mpic++
 CC_FLAG=-Wall -std=c++11
 
-OBJ=examples.o 
-
+OBJ=
 PRG=gmr
-$(PRG):
-		$(CC) $(CC_FLAG) $(INC) $(LIB) -o $@ $@.cpp
 
-testrwg:
+$(PRG):
 		$(CC) $(CC_FLAG) $(INC) $(LIB) -o $@ $@.cpp
 			
 .SUFFIXES: .c .o .cpp
@@ -22,4 +19,4 @@ testrwg:
 .PHONY : clean
 clean:
 	@echo "Removing linked and compiled files......"
-		rm -f $(OBJ) $(PRG) testrwg
+		rm -f $(OBJ) $(PRG) 

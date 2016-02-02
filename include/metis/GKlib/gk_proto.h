@@ -1,5 +1,4 @@
-/*!
-\file gk_proto.h
+/*!  \file gk_proto.h
 \brief This file contains function prototypes
 
 \date   Started 3/27/2007

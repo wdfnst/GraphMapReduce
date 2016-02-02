@@ -271,7 +271,6 @@ graph_t *graph_Read(std::string filename, int format, int isfewgts,
   if (k != nedges)
       errexit(SIGERR, "gk_graph_Read: Something wrong with the number of edges in "
                        "the input file. nedges, Actualnedges.\n");
-
   fin.close();
   return graph;
 }
@@ -328,7 +327,8 @@ int *getSendBufferSize(const graph_t *graph, const int psize, const int rank) {
     /* 先遍历一次需要发送的数据，确定需要和每个节点交换的数据 */
     for (int i=0; i<graph->nvtxs; i++) {
         /* 如果当前顶点vertex为iactive, 则不用发送 */
-        if (graph->status[i] == inactive) continue;
+        /* TODO: Bugfix - 不将收敛的节点发送, 可能导致不收敛 */
+        //if (graph->status[i] == inactive) continue;
         /* 记录当前节点向外发送时，所需要的缓存大小 */
         int currentVertexSize = 0;
         // id, loc, weight of vertex
@@ -369,9 +369,10 @@ char *getSendbuffer(graph_t *graph, int *sendcounts, int *sdispls,
     /* 将要发送顶点拷贝到对应的缓存: 内存拷贝(是否有方法减少拷贝?) */
     int *offsets = (int*)malloc(psize * sizeof(int));
     memset(offsets, 0, psize * sizeof(int));
-    for (int i=0; i<graph->nvtxs; i++) {
+    for (int i = 0; i < graph->nvtxs; i++) {
         /* 如果当前顶点vertex为iactive, 则不用发送 */
-        if (graph->status[i] == inactive) continue;
+        /* TODO: Bugfix - 不将收敛的节点发送, 可能导致不收敛 */
+        //if (graph->status[i] == inactive) continue;
         /* record the size of current vertex */
         int currentVertexSize = 0;
         // accumulate the size of id, loc, weight of vertex
@@ -383,7 +384,7 @@ char *getSendbuffer(graph_t *graph, int *sendcounts, int *sdispls,
         currentVertexSize += sizeof(int);
         currentVertexSize += neighborNum * sizeof(int);
         currentVertexSize += neighborNum * sizeof(int);
-        currentVertexSize += neighborNum * (graph->iadjwgt ?  sizeof (int) : sizeof(float));
+        currentVertexSize += neighborNum * (graph->iadjwgt ? sizeof(int) : sizeof(float));
 
         /* vertex memory image: (id | location | weight | edgenum 
          * | edges1-n | locationOfedges1-n | weightOfedges1-n) */

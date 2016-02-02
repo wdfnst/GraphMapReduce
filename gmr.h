@@ -15,14 +15,16 @@ std::map<std::string, double> timeRecorder;
 long totalRecvBytes = 0;
 long totalMaxMem    = 0;
 
-/* threahold:       迭代精度
- * remainDeviation: 当前迭代步的残余误差
- * iterNum:         当目前为止, 迭代的次数
- * MAX_ITERATION:   系统允许的最大迭代次数 */
-float threshold = 0.0001;
-float remainDeviation = FLT_MAX;
-int iterNum = 0;
-int MAX_ITERATION = 10000;
+/* threahold:        迭代精度
+ * remainDeviation:  当前迭代步的残余误差
+ * iterNum:          当目前为止, 迭代的次数
+ * MAX_ITERATION:    系统允许的最大迭代次数
+ * convergentVertex: 本子图已经收敛的顶点个数 */
+float threshold         = 0.0001;
+float remainDeviation   = FLT_MAX;
+int iterNum             = 0;
+int MAX_ITERATION       = 10000;
+size_t convergentVertex = 0;
 
 /* Map/Reduce编程模型中的键值对,用于作为Map输出和Reduce输入输出 */
 struct KV {
@@ -55,6 +57,8 @@ struct Vertex {
  * *************************************************/
 class GMR {
 public:
+    /* 根据不同的算法, 对图进行初始化 */
+    virtual void initGraph(graph_t *graph) = 0;
     /* Map/Reduce编程模型中的Map函数 */
     virtual void map(Vertex &v, std::list<KV> &kvs) = 0;
 
@@ -75,17 +79,24 @@ void updateGraph(graph_t *graph, std::list<KV> &reduceResult) {
         if (iter->key > graph->ivsizes[i]) i++;
         else if (graph->ivsizes[i] > iter->key) iter++;
         else {
-            /* 计算误差，并和老值进行比较, 判断迭代是否结束 */
+            /* 计算误差, 并和老值进行比较, 判断迭代是否结束 */
             float deviation = fabs(iter->value - graph->fvwgts[i]);
             /* 与老值进行比较, 如果变化小于threhold,则将vertex.status设置为inactive */
             if (deviation > threshold) {
                 if (deviation > currentMaxDeviation) currentMaxDeviation = deviation;
-                if(INFO) printf("迭代误差: fasb(%f - %f) = %f\n", iter->value,
-                        graph->fvwgts[i], fabs(iter->value - graph->fvwgts[i]));
-                graph->status[i] = active;
+                if(INFO) printf("迭代误差: fabs(%f - %f) = %f\n", iter->value,
+                        graph->fvwgts[i], deviation);
+                if(graph->status[i] == inactive) {
+                    graph->status[i] = active;
+                    convergentVertex--;
+                }
             }
-            else
-                graph->status[i] = inactive;
+            else {
+                if(graph->status[i] == active) {
+                    convergentVertex++;
+                    graph->status[i] = inactive;
+                }
+            }
             graph->fvwgts[i] = iter->value;
             i++; iter++;
         }
@@ -107,10 +118,12 @@ void computing(int rank, graph_t *graph, char *rb, int recvbuffersize, GMR *gmr)
         vertex.value = graph->fvwgts[i];
         vertex.neighborSize = graph->xadj[i+1] - graph->xadj[i];
         int neighbor_sn = 0;
-        for (int j=graph->xadj[i]; j<graph->xadj[i+1]; j++) {
+        for (int j=graph->xadj[i]; j<graph->xadj[i+1]; j++, neighbor_sn++) {
             /* graph的邻居点数组中实际上存储的是以0开始的顶点,实际使用是以1开始
              * 所以需要在顶点原值的基础上加1 */
-            vertex.neighbors[neighbor_sn++] = graph->adjncy[j] + 1;
+            vertex.neighbors[neighbor_sn] = graph->adjncy[j] + 1;
+            /* 将边的权重从图中顶点拷贝到vertex.edgewgt[k++]中 */
+            vertex.edgewgt[neighbor_sn] = graph->fadjwgt[j];
         }
         gmr->map(vertex, kvs);
     }
@@ -180,9 +193,9 @@ void computing(int rank, graph_t *graph, char *rb, int recvbuffersize, GMR *gmr)
 
 /* 打印计算的过程中的信息: 迭代次数, 各个步骤耗时 */
 void printTimeConsume() {
-    printf("迭代次数:%d, 迭代残余误差:%f, 本次迭代耗时:%f:(%f[exdata] & %f[map] & %f"
-            "[reduce] & %f[updategraph] & %f[computing])\n", 
-            iterNum, remainDeviation,
+    printf("迭代次数:%d(%-6.2f\%%), 迭代残余误差:%ef, 本次迭代耗时:%f=(%f[exdata]"
+            " + %f[map] + %f" "[reduce] + %f[updategraph] + %f[computing])\n", 
+            iterNum, convergentVertex * 1.0 / ntxs * 100 , remainDeviation,
             timeRecorder["eiteration"] - timeRecorder["bexchangecounts"],
             timeRecorder["eexchangedata"] - timeRecorder["bexchangedata"],
             timeRecorder["erecvbuffermap"] - timeRecorder["bgraphmap"],

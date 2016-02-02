@@ -34,7 +34,8 @@ int main(int argc, char *argv[]) {
     /* 子图文件和用到的图算法实现类 */
     char subgraphfilename[256];
     graph_t *graph;
-    GMR *pagerank_gmr = new PageRank();
+    //GMR *gmr = new PageRank();
+    GMR *gmr = new SSSP(1);
 
     /* 初始化MPI */
     MPI_Init(&argc,&argv);
@@ -43,9 +44,11 @@ int main(int argc, char *argv[]) {
 
     /* allothersendcounts: 
      * 接收所有进程发送数据的大小, 用于判断迭代结束(若所有进程都无数据需要发送)
+     * sendcountswithconv:带收敛进度的发送缓存区大小(image: sendcounts : conv) 
      * sendcounts, recvcounts: 数据发送和接收缓冲区
      * sdispls, rdispls: 发送和接收数据缓冲区的偏移 */
-    int *allothersendcounts = (int*)malloc(size * size * sizeof(int));
+    int *allothersendcounts = (int*)malloc((size + 1) * size * sizeof(int));
+    int *sendcountswithconv = (int*)malloc((size + 1) * sizeof(int));
     int *sendcounts         = NULL;
     int *recvcounts         = (int*)malloc(size * sizeof(int));
     int *sdispls            = (int*)malloc(size * sizeof(int));
@@ -56,35 +59,49 @@ int main(int argc, char *argv[]) {
     graph = graph_Read(subgraphfilename, GK_GRAPH_FMT_METIS, 1, 1, 0);
     ntxs = graph->nvtxs;
     if(INFO) printf("%d 节点和边数: %d %zd\n", rank, graph->nvtxs, graph->xadj[graph->nvtxs]);
-    if (DEBUG) displayGraph(graph);
+    if (INFO) displayGraph(graph);
+
+    /* 首先使用算法对图进行初始化:
+     * PageRank: 初始化为空
+     * SSSP: 如果调用的是SSSP算法, 需要将图进行初始化
+     * startv.value = 0, otherv = ∞ */
+    gmr->initGraph(graph);
 
     while(true && iterNum < MAX_ITERATION){
         sendcounts = getSendBufferSize(graph, size, rank);
-        memset(allothersendcounts, 0, size * size * sizeof(int));
+        memset(allothersendcounts, 0, (size + 1) * size * sizeof(int));
+        memset(sendcountswithconv, 0, (size + 1) * sizeof(int));
         memset(recvcounts, 0, size * sizeof(int));
         memset(sdispls, 0, size * sizeof(int));
         memset(rdispls, 0, size * sizeof(int));
 
         /* 打印出节点发送缓冲区大小 */
         if(INFO) printf("Process %d send size:", rank);
-        for (int i = 0; i < size; i++) {
+        for (i = 0; i < size; i++) {
             if(INFO) printf(" %d\t", sendcounts[i]);
         }
         if(INFO) printf("\n");
         
-        /* 如果每个节点发向其他所有节点的数据大小都为0, 则迭代结束 */
+        /* 计算迭代进度(收敛顶点数/总的顶点数 * 10,000), 并将其加在缓存大小后面
+         * ,接收数据后,首先判断所有进程的收敛进度是否接收,再拷贝接收缓存大小 */
         recordTick("bexchangecounts");
-        MPI_Allgather(sendcounts, size, MPI_INT, allothersendcounts, size,
-                MPI_INT, MPI_COMM_WORLD); 
-        if (accumulate(allothersendcounts, allothersendcounts + size, 0) == 0) break;
+        int convergence = (int)(1.0 * convergentVertex / graph->nvtxs * 10000);
+        memcpy(sendcountswithconv, sendcounts, size * sizeof(int));
+        memcpy(sendcountswithconv + size, &convergence, sizeof(int));
+        MPI_Allgather(sendcountswithconv, size + 1, MPI_INT, allothersendcounts,
+                size + 1, MPI_INT, MPI_COMM_WORLD); 
+        i = size;
+        while(allothersendcounts[i] == 10000 && i < (size + 1) * size) i += (size + 1);
+        if (i > (size + 1) * size - 1) break;
+
         /* 将本节点接收缓存区大小拷贝到recvcounts中 */
-        for (int i = 0; i < size; i++)
-            recvcounts[i] = allothersendcounts[rank + i * size];
+        for (i = 0; i < size; i++)
+            recvcounts[i] = allothersendcounts[rank + i * (size + 1)];
         recordTick("eexchangecounts");
 
         /* 打印出节点接收到的接收缓冲区大小 */
         if(INFO) printf("Prcess %d recv size:", rank);
-        for (int i = 0; i < size; i++) {
+        for (i = 0; i < size; i++) {
             if(INFO) printf(" %d\t", recvcounts[i]);
         }
         if(INFO) printf("\n");
@@ -101,7 +118,7 @@ int main(int argc, char *argv[]) {
             MPI_Abort(MPI_COMM_WORLD,EXIT_FAILURE); 
         }
         /* 计算发送和接收缓冲区偏移 */
-        for (int i = 1; i != size; i++) {
+        for (i = 1; i != size; i++) {
             sdispls[i] += (sdispls[i - 1] + sendcounts[i - 1]);
             rdispls[i] += (rdispls[i - 1] + recvcounts[i - 1]);
         }
@@ -113,8 +130,8 @@ int main(int argc, char *argv[]) {
 
         /* 调用MPIA_Alltoallv(), 交换数据 */
         recordTick("bexchangedata");
-        MPI_Alltoallv(sb, sendcounts, sdispls, MPI_CHAR, rb, recvcounts, rdispls, MPI_CHAR, 
-                MPI_COMM_WORLD);
+        MPI_Alltoallv(sb, sendcounts, sdispls, MPI_CHAR, rb, recvcounts,
+                rdispls, MPI_CHAR, MPI_COMM_WORLD);
         recordTick("eexchangedata");
 
         /*从其他子图传过来的子图,应该更新到本子图上,然后计算本子图信息*/
@@ -129,7 +146,7 @@ int main(int argc, char *argv[]) {
             memcpy(&location, rb + (i += sizeof(int)), sizeof(int));
             memcpy(&fvwgt, rb + (i += sizeof(int)), sizeof(float));
             memcpy(&edgenum, rb + (i += sizeof(float)), sizeof(int));
-            if(DEBUG) printf(" %d %d %f %d ", vid, location, fvwgt, edgenum);
+            if(DEBUG) printf("===>%d %d %f %d ", vid, location, fvwgt, edgenum);
             i += sizeof(int);
             /* 读取边的另外一个顶点 */
             for (int j = 0; j < edgenum; j++, i += sizeof(int)) {
@@ -152,7 +169,7 @@ int main(int argc, char *argv[]) {
 
         /*合并其他节点传递过来的顶点，计算并判断是否迭代结束*/
         recordTick("bcomputing");
-        computing(rank, graph, rb, rbsize, pagerank_gmr); 
+        computing(rank, graph, rb, rbsize, gmr); 
         recordTick("ecomputing");
         free(sb); free(rb);
         MPI_Barrier(MPI_COMM_WORLD);
@@ -164,9 +181,14 @@ int main(int argc, char *argv[]) {
         printTimeConsume();
     }
     MPI_Finalize();
+    /* 打印处理完之后的结果(图) */
+    //displayGraph(graph);
     graph_Free(&graph);
-    if (sdispls) free(sdispls); if(rdispls) free(rdispls); // if(sendcounts) free(sendcounts); 
-    if (recvcounts) free(recvcounts); if(allothersendcounts) free(allothersendcounts);
+    if (sdispls) free(sdispls); if(rdispls) free(rdispls);
+    if (recvcounts) free(recvcounts);
+    if(allothersendcounts) free(allothersendcounts);
+    if(sendcountswithconv) free(sendcountswithconv);
+
     printf("程序运行结束,总共耗时:%f secs, 通信量:%ld Byte, 最大消耗内存:(未统计)Byte\n", 
             MPI_Wtime() - starttime, totalRecvBytes);
 }

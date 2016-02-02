@@ -3,9 +3,13 @@
  * *************************************************/
 class PageRank : public GMR {
 public:
+    /* 根据PageRank算法特点和需要,对图进行初始化 */
+    void initGraph(graph_t *graph) {
+        printf("==========>PageRank<==========\n");
+    }
+
     /* Map/Reduce编程模型中的Map函数 */
     void map(Vertex &v, std::list<KV> &kvs) {
-        if(DEBUG) printf("get in the map function.\n");
         float value = v.value / v.neighborSize;
         for (int i = 0; i < v.neighborSize; i++) {
             kvs.push_back({v.neighbors[i], value});
@@ -34,13 +38,28 @@ public:
  ***************************************************/
 class SSSP : public GMR {
 public:
+    SSSP(ssize_t startv) : startv(startv) { }
+    /* 根据SSSP算法特点和需要,对图进行初始化 */
+    void initGraph(graph_t *graph) {
+        printf("==========>SSSP<==========\n");
+        for (int i=0; i<graph->nvtxs; i++) {
+            if (graph->ivsizes[i] == startv)  {
+                graph->fvwgts[i] = 0;
+            }
+            else
+                graph->fvwgts[i] = FLT_MAX;
+        }
+    }
+
     void map(Vertex &v, std::list<KV> &kvs) {
         /* 当第一次迭代的时候对图进行出发顶点和其他个顶点的值进行初始化 */
-        if(DEBUG) printf("get in the map function.\n");
         kvs.push_back({v.id, v.value});
+        if(DEBUG) printf("%dth map result: %d %f\n", iterNum,
+                v.id, v.value);
         for (int i = 0; i < v.neighborSize; i++) {
             kvs.push_back({v.neighbors[i], v.value + v.edgewgt[i]});
-            if(DEBUG) printf("%d %f\n", v.neighbors[i], v.value + v.edgewgt[i]);
+            if(DEBUG) printf("%dth map result: %d-->%d %f + %f\n", iterNum,
+                    v.id, v.neighbors[i], v.value, v.edgewgt[i]);
         }
     }
 
@@ -50,15 +69,19 @@ public:
     /* Map/Reduce编程模型中的Reduce函数 */
     KV reduce(std::list<KV> &kvs) {
         // dist1 [u] = Edge[v][u]
-        // dist k [u] = min{ dist k-1 [u], min{ dist k-1 [j] + Edge[j][u] } }, j=0,1,…,n-1,j≠u
-        float shortestPath = 0.0;
+        // dist k [u] = min{ dist k-1 [u], 
+        // min{ dist k-1 [j] + Edge[j][u] } }, j=0,1,…,n-1,j≠u
+        float shortestPath = FLT_MAX;
         for (auto kv : kvs) {
             if (kv.value < shortestPath)
                 shortestPath = kv.value;
         }
-        if (DEBUG) printf("reduce result: %d %f\n", kvs.front().key, shortestPath);
+        if (DEBUG) printf("%dth reduce result: %d %f\n", iterNum,
+                kvs.front().key, shortestPath);
         return {kvs.front().key, shortestPath};
     }
+
+    ssize_t startv;
 };
 
 /****************************************************
@@ -76,10 +99,8 @@ class triangleCount : public GMR { };
  ***************************************************/
 class connectedComponents : public GMR { };
 
-
 /****************************************************
- * 其他图算法
- * 参考:
+ * 其他图算法, 参考:
  * The following is a quick summary of the functionality defined in both Graph and GraphOps
  * https://spark.apache.org/docs/latest/graphx-programming-guide.html#graph-operators
  ***************************************************/

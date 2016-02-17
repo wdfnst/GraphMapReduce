@@ -34,9 +34,6 @@ struct KV {
     KV() {}
     KV(int key, float value) : key(key), value(value), skey(-1) {}
     KV(int key, int skey, float value) : key(key), value(value), skey(skey) {}
-//     bool operator==(int key) {
-//         return this->key == key;
-//     }
 };
 
 /* 用于对KV的key进行排序的lambda函数 */

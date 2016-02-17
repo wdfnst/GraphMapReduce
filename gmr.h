@@ -15,23 +15,42 @@ std::map<std::string, double> timeRecorder;
 long totalRecvBytes = 0;
 long totalMaxMem    = 0;
 
-/* threahold:        迭代精度
- * remainDeviation:  当前迭代步的残余误差
- * iterNum:          当目前为止, 迭代的次数
- * MAX_ITERATION:    系统允许的最大迭代次数
+/* threahold       : 迭代精度
+ * remainDeviation : 当前迭代步的残余误差
+ * iterNum         : 当目前为止, 迭代的次数
+ * MAX_ITERATION   : 系统允许的最大迭代次数
  * convergentVertex: 本子图已经收敛的顶点个数 */
 float threshold         = 0.0001;
 float remainDeviation   = FLT_MAX;
 int iterNum             = 0;
-int MAX_ITERATION       = 10000;
+int MAX_ITERATION       = 10;
 size_t convergentVertex = 0;
 
 /* Map/Reduce编程模型中的键值对,用于作为Map输出和Reduce输入输出 */
 struct KV {
     int key; float value;
-    bool operator==(int key) {
-        return this->key == key;
+    /* skey, svalue作为结构体KV中辅助存储键值的单元 */
+    int skey; std::list<int> svalue;
+    KV() {}
+    KV(int key, float value) : key(key), value(value), skey(-1) {}
+    KV(int key, int skey, float value) : key(key), value(value), skey(skey) {}
+//     bool operator==(int key) {
+//         return this->key == key;
+//     }
+};
+
+/* 用于对KV的key进行排序的lambda函数 */
+auto KVComp = [](KV &kv1, KV &kv2) {
+    if (kv1.key < kv2.key)
+        return true;
+    else if (kv1.key == kv2.key) {
+        if (kv1.skey < kv2.skey)
+            return true;
+        else
+            return false;
     }
+    else
+        return false;
 };
 
 /* 记录当前程序执行到当前位置的MPI_Wtime */
@@ -67,7 +86,24 @@ public:
 
     /* Map/Reduce编程模型中的Reduce函数 */
     virtual KV reduce(std::list<KV> &kvs) = 0;
+
+    /* 比较Key/Value的key */
+    virtual int keyComp(KV &kv1, KV &kv2) {
+        if (kv1.key == kv2.key)
+            return 0;
+        else if (kv1.key < kv2.key)
+            return -1;
+        else
+            return 1;
+    }
+
+    /* 输出算法的执行结果 */
+    virtual void printResult(graph_t *graph) { }
+
+    /* 算法需要迭代的次数, 默认为系统设置的最大迭代次数 */
+    static size_t algoIterNum;
 };
+size_t GMR::algoIterNum = INT_MAX;
 
 /* 将图中指定id的顶点的值进行更新, 并返回迭代是否结束 */
 void updateGraph(graph_t *graph, std::list<KV> &reduceResult) {
@@ -167,14 +203,14 @@ void computing(int rank, graph_t *graph, char *rb, int recvbuffersize, GMR *gmr)
 
     /* 对map产生的key/value list进行排序 */
     recordTick("bsort");
-    kvs.sort([](KV &kv1, KV &kv2){return kv1.key < kv2.key;});
+    kvs.sort(KVComp);
     recordTick("esort");
 
     recordTick("breduce");
     std::list<KV> sameKeylist;
     std::list<KV> reduceResult;
     for (KV kv : kvs) {
-        if(sameKeylist.size() > 0 && kv.key != sameKeylist.front().key) {
+        if(sameKeylist.size() > 0 && gmr->keyComp(kv, sameKeylist.front()) != 0) {
             KV tmpkv = gmr->reduce(sameKeylist);
             reduceResult.push_back(tmpkv);
             sameKeylist.clear();

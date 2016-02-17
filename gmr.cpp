@@ -35,7 +35,8 @@ int main(int argc, char *argv[]) {
     char subgraphfilename[256];
     graph_t *graph;
     //GMR *gmr = new PageRank();
-    GMR *gmr = new SSSP(1);
+    //GMR *gmr = new SSSP(1);
+    GMR *gmr = new TriangleCount();
 
     /* 初始化MPI */
     MPI_Init(&argc,&argv);
@@ -55,7 +56,7 @@ int main(int argc, char *argv[]) {
     int *rdispls            = (int*)malloc(size * sizeof(int));
 
     /* 根据进程号, 拼接子图文件名, 并读取子图到结构体graph中 */
-    sprintf(subgraphfilename, "graph/small.graph.subgraph.%d", rank);
+    sprintf(subgraphfilename, "graph/4elt.graph.subgraph.%d", rank);
     graph = graph_Read(subgraphfilename, GK_GRAPH_FMT_METIS, 1, 1, 0);
     ntxs = graph->nvtxs;
     if(INFO) printf("%d 节点和边数: %d %zd\n", rank, graph->nvtxs, graph->xadj[graph->nvtxs]);
@@ -67,7 +68,7 @@ int main(int argc, char *argv[]) {
      * startv.value = 0, otherv = ∞ */
     gmr->initGraph(graph);
 
-    while(true && iterNum < MAX_ITERATION){
+    while(true && iterNum < MAX_ITERATION && iterNum < gmr->algoIterNum){
         sendcounts = getSendBufferSize(graph, size, rank);
         memset(allothersendcounts, 0, (size + 1) * size * sizeof(int));
         memset(sendcountswithconv, 0, (size + 1) * sizeof(int));
@@ -183,6 +184,7 @@ int main(int argc, char *argv[]) {
     MPI_Finalize();
     /* 打印处理完之后的结果(图) */
     //displayGraph(graph);
+    gmr->printResult(graph);
     graph_Free(&graph);
     if (sdispls) free(sdispls); if(rdispls) free(rdispls);
     if (recvcounts) free(recvcounts);

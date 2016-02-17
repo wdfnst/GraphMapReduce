@@ -31,6 +31,9 @@ public:
         if (DEBUG) printf("reduce result: %d %f\n", kvs.front().key, sum);
         return {kvs.front().key, sum};
     }
+
+    /* 输出算法的执行结果 */
+    virtual void printResult(graph_t *graph) { }
 };
 
 /****************************************************
@@ -81,18 +84,102 @@ public:
         return {kvs.front().key, shortestPath};
     }
 
+    /* 单源最短路经的起始节点 */
     ssize_t startv;
+
+    /* 输出算法的执行结果 */
+    virtual void printResult(graph_t *graph) { }
 };
+
+/****************************************************
+ * 该类用实求解triangleCount(三角形关系计算)算法
+ ***************************************************/
+class TriangleCount : public GMR {
+    /* 根据PageRank算法特点和需要,对图进行初始化 */
+    void initGraph(graph_t *graph) {
+        printf("==========>TriangleCount<==========\n");
+        /* TriangleCount算法中, 只需要迭代一次即可结束 */
+        algoIterNum = 1;
+        /* 将所有顶点的值都赋为0, 最后存储以此顶点出发的三角形个数 */
+        for (int i=0; i<graph->nvtxs; i++)
+            graph->fvwgts[i] = 0;
+    }
+
+    /* Map/Reduce编程模型中的Map函数 */
+    void map(Vertex &v, std::list<KV> &kvs) {
+        KV tempKV;
+        for (int i = 0; i < v.neighborSize; i++) {
+            tempKV.svalue.push_back(v.neighbors[i]);
+        }
+        for (int i = 0; i < v.neighborSize; i++) {
+            std::pair<int, int> key;
+            /* (a, b)与(b, a)实际上是一个键值,所以统一存为: (a, b) st. a < b */
+            if (v.id < v.neighbors[i])
+                tempKV.key = v.id, tempKV.skey = v.neighbors[i];
+            else
+                tempKV.key = v.neighbors[i], tempKV.skey = v.id;
+            kvs.push_back(tempKV);
+            if(DEBUG) printf("Pair.key(%d %d)\n", tempKV.key, tempKV.skey);
+        }
+    }
+
+    /* 用于将Map/Reduce计算过程中产生的KV list进行排序 */
+    void sort(std::list<KV> &kvs) { }
+
+    /* Map/Reduce编程模型中的Reduce函数 */
+    KV reduce(std::list<KV> &kvs) {
+        int sum = 0;
+        /* 对kvs中的value(std::list<int>)求交集 */
+        if (kvs.size() == 2) {
+            /* 遍历pkv1和pkv2的邻居, 寻找其相同的邻居并计数 */
+            for (int i : kvs.front().svalue) {
+                for (int j : kvs.back().svalue) {
+                    /*只计数满足a < b < c的三角形△ (a, b, c)*/
+                    if (i == j && i > kvs.front().skey) {
+                        sum++;
+                    }
+                }
+            }
+        }
+        if (DEBUG) printf("reduce result: (%d %d):%d\n", kvs.front().key, 
+                kvs.front().skey, sum);
+        return {kvs.front().key, static_cast<float>(sum)};
+    }
+
+    /* 比较Key/Value的key */
+    virtual int keyComp(KV &kv1, KV &kv2) {
+        if (kv1.key == kv2.key) {
+            if (kv1.skey == kv2.skey)
+                return 0;
+            else if (kv1.skey < kv2.skey)
+                return -1;
+            else
+                return 1;
+        }
+        if (kv1.key < kv2.key)
+            return -1;
+        else
+            return 1;
+    }
+
+    /* 输出算法的执行结果 */
+    virtual void printResult(graph_t *graph) {
+        float triangleSum = 0;
+        for (int i=0; i<graph->nvtxs; i++)
+            triangleSum += graph->fvwgts[i];
+        printf("共计三角形个数:%f\n", triangleSum);
+    }
+};
+
+/****************************************************
+ * 该类用于求解矩阵乘法算法
+ ***************************************************/
+class MatrixMultiply : public GMR { };
 
 /****************************************************
  * 该类用实求解BFS(广度优先搜索算法)算法
  ***************************************************/
 class BFS : public GMR { };
-
-/****************************************************
- * 该类用实求解triangleCount(三角形关系计算)算法
- ***************************************************/
-class triangleCount : public GMR { };
 
 /****************************************************
  * 该类用实求解connectedComponents(连图子图)算法

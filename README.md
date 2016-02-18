@@ -52,8 +52,8 @@ vertex_id vertex_weight neighbor1 neighbor1.location edge1.weight ... neighborN 
 将排序好的key/value list按照业务逻辑函数reduce进行规约.
 #### 5. 将reduce计算的结果更新到graph中    
 #### 6. (non-mandatory)为兼容非图结构的MapReduce计算, 框架(将)在Map与Reduce之间实现除局部排序意外的全局排序。    
-图结构的MapReduce计算和非图结构的MapReduce计算在计算步骤上并不一样，其异同如下图所示，框架为了同时支持非图结构数据的MapReduce计算，在Map、Reduce之间同时(将)实现了全局排序。
-
+图结构的MapReduce计算和非图结构的MapReduce计算在计算步骤上并不一样，其异同如下图所示，框架为了同时支持非图结构数据的MapReduce计算，在Map、Reduce之间同时(将)实现了全局排序。    
+![输入图片说明](http://git.oschina.net/uploads/images/2016/0218/123450_97c46b95_496314.png "在这里输入图片标题")
 
 ## 四. 例子
 ### 4.1 PageRank

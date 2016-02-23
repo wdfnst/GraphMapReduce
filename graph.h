@@ -9,11 +9,11 @@
 #define LTERM                   (void **) 0
 #define GK_GRAPH_FMT_METIS      1
 
-/* subgraphNum: 子图个数
- * ntxs:        当前使用的子图中顶点数
- * nedges:      当前使用的子图边条数
- * NODE_STATUS: 顶点状态 */
-const int subgraphNum = 3;
+/* MAX_PROCESSOR: 最大子图个数 
+ * ntxs:          当前进程使用的子图中顶点数
+ * nedges:        当前进程使用的子图边条数
+ * NODE_STATUS:   顶点状态 */
+const int MAX_PROCESSOR = 256;
 int ntxs = 0;
 int nedges = 0;
 enum NODE_STATUS {active, inactive};
@@ -343,13 +343,14 @@ int *getSendBufferSize(const graph_t *graph, const int psize, const int rank) {
         currentVertexSize += neighborNum * (graph->iadjwgt ?  sizeof (int) : sizeof(float));
 
         /* visited 用于记录当前遍历的顶点是否已经发送给节点adjloc[j] */
-        std::bitset<subgraphNum> visited;
+        short visited[MAX_PROCESSOR];
+        memset(visited, 0, MAX_PROCESSOR * sizeof(short));
         for (int j=graph->xadj[i]; j<graph->xadj[i+1]; j++) {
             /* 如果当前顶点的终止顶点为在当前节点, 则不必发送 */
             if (graph->adjloc[j] == rank) continue;
             /* 如果当前顶点已经在之前发过给此节点, 则也不用发送 */
-            if (visited.test(graph->adjloc[j])) continue;
-            visited.set(graph->adjloc[j]);
+            if (visited[graph->adjloc[j]] == 1) continue;
+            visited[graph->adjloc[j]] = 1;
             sendcounts[graph->adjloc[j]] += currentVertexSize;
         }
     }
@@ -408,11 +409,12 @@ char *getSendbuffer(graph_t *graph, int *sendcounts, int *sdispls,
                     &(graph->fadjwgt[graph->xadj[i]]), neighborNum * sizeof(float));
 
         /* visited 用于记录当前遍历的顶点是否已经发送给节点adjloc[j]*/
-        std::bitset<subgraphNum> visited;
+        short visited[MAX_PROCESSOR];
+        memset(visited, 0, MAX_PROCESSOR * sizeof(short));
         for (int j = graph->xadj[i]; j< graph->xadj[i+1]; j++) {
             if (graph->adjloc[j] == rank) continue;
-            if (visited.test(graph->adjloc[j])) continue;
-            visited.set(graph->adjloc[j]);
+            if (visited[graph->adjloc[j]] == 1) continue;
+            visited[graph->adjloc[j]] = 1;
             memcpy(sb + sdispls[graph->adjloc[j]] + offsets[graph->adjloc[j]],
                     vertex, currentVertexSize);
             offsets[graph->adjloc[j]] += currentVertexSize;

@@ -34,9 +34,9 @@ int main(int argc, char *argv[]) {
     /* 子图文件和用到的图算法实现类 */
     char subgraphfilename[256];
     graph_t *graph;
-    //GMR *gmr = new PageRank();
+    GMR *gmr = new PageRank();
     //GMR *gmr = new SSSP(1);
-    GMR *gmr = new TriangleCount();
+    //GMR *gmr = new TriangleCount();
 
     /* 初始化MPI */
     MPI_Init(&argc,&argv);
@@ -56,7 +56,7 @@ int main(int argc, char *argv[]) {
     int *rdispls            = (int*)malloc(size * sizeof(int));
 
     /* 根据进程号, 拼接子图文件名, 并读取子图到结构体graph中 */
-    sprintf(subgraphfilename, "graph/4elt.graph.subgraph.%d", rank);
+    sprintf(subgraphfilename, "graph/small.graph.subgraph.%d", rank);
     graph = graph_Read(subgraphfilename, GK_GRAPH_FMT_METIS, 1, 1, 0);
     ntxs = graph->nvtxs;
     if(INFO) printf("%d 节点和边数: %d %zd\n", rank, graph->nvtxs, graph->xadj[graph->nvtxs]);
@@ -69,6 +69,7 @@ int main(int argc, char *argv[]) {
     gmr->initGraph(graph);
 
     while(true && iterNum < MAX_ITERATION && iterNum < gmr->algoIterNum){
+        /* 从当前子图获取需要向其他节点发送的字节数 */
         sendcounts = getSendBufferSize(graph, size, rank);
         memset(allothersendcounts, 0, (size + 1) * size * sizeof(int));
         memset(sendcountswithconv, 0, (size + 1) * sizeof(int));
@@ -86,9 +87,11 @@ int main(int argc, char *argv[]) {
         /* 计算迭代进度(收敛顶点数/总的顶点数 * 10,000), 并将其加在缓存大小后面
          * ,接收数据后,首先判断所有进程的收敛进度是否接收,再拷贝接收缓存大小 */
         recordTick("bexchangecounts");
+        /* 将收敛精度乘以10000, 实际上是以精确到小数点后两位以整数形式发送 */
         int convergence = (int)(1.0 * convergentVertex / graph->nvtxs * 10000);
         memcpy(sendcountswithconv, sendcounts, size * sizeof(int));
         memcpy(sendcountswithconv + size, &convergence, sizeof(int));
+        /* 交换需要发送字节数和收敛的进度 */
         MPI_Allgather(sendcountswithconv, size + 1, MPI_INT, allothersendcounts,
                 size + 1, MPI_INT, MPI_COMM_WORLD); 
         i = size;

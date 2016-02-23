@@ -23,7 +23,7 @@ long totalMaxMem    = 0;
 float threshold         = 0.0001;
 float remainDeviation   = FLT_MAX;
 int iterNum             = 0;
-int MAX_ITERATION       = 10;
+int MAX_ITERATION       = 10000;
 size_t convergentVertex = 0;
 
 /* Map/Reduce编程模型中的键值对,用于作为Map输出和Reduce输入输出 */

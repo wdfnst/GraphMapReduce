@@ -16,6 +16,7 @@
 #include <string.h> 
 #include <signal.h>
 #include <unistd.h>
+#include <limits.h>
 #include <errno.h> 
 #include "mpi.h"
 #include "error.h"
@@ -29,7 +30,6 @@ int main(int argc, char *argv[]) {
     /* rank, size: MPI进程序号和进程数, sb: 发送缓存, rb: 接收缓存 */
     int rank, size, i;
     char *sb = nullptr, *rb = nullptr;
-    double starttime = MPI_Wtime();
 
     /* 子图文件和用到的图算法实现类 */
     char subgraphfilename[256];
@@ -43,6 +43,7 @@ int main(int argc, char *argv[]) {
     MPI_Comm_rank(MPI_COMM_WORLD,&rank);
     MPI_Comm_size(MPI_COMM_WORLD,&size);
 
+    double starttime = MPI_Wtime();
     /* allothersendcounts: 
      * 接收所有进程发送数据的大小, 用于判断迭代结束(若所有进程都无数据需要发送)
      * sendcountswithconv:带收敛进度的发送缓存区大小(image: sendcounts : conv) 
@@ -56,7 +57,7 @@ int main(int argc, char *argv[]) {
     int *rdispls            = (int*)malloc(size * sizeof(int));
 
     /* 根据进程号, 拼接子图文件名, 并读取子图到结构体graph中 */
-    sprintf(subgraphfilename, "graph/small.graph.subgraph.%d", rank);
+    sprintf(subgraphfilename, "graph/mdual.graph.subgraph.%d", rank);
     graph = graph_Read(subgraphfilename, GK_GRAPH_FMT_METIS, 1, 1, 0);
     ntxs = graph->nvtxs;
     if(INFO) printf("%d 节点和边数: %d %zd\n", rank, graph->nvtxs, graph->xadj[graph->nvtxs]);
@@ -115,11 +116,6 @@ int main(int argc, char *argv[]) {
         if ( !rb ) {
             perror( "can't allocate recv buffer");
             free(sb); MPI_Abort(MPI_COMM_WORLD,EXIT_FAILURE);
-        }
-        sb = (char*)malloc(accumulate(sendcounts, sendcounts + size, 0));
-        if ( !sb ) {
-            perror( "can't allocate send buffer" );
-            MPI_Abort(MPI_COMM_WORLD,EXIT_FAILURE); 
         }
         /* 计算发送和接收缓冲区偏移 */
         for (i = 1; i != size; i++) {
@@ -184,6 +180,9 @@ int main(int argc, char *argv[]) {
         iterNum++;
         printTimeConsume();
     }
+    printf("程序运行结束,总共耗时:%f secs, 通信量:%ld Byte, 最大消耗内存:(未统计)Byte\n", 
+            MPI_Wtime() - starttime, totalRecvBytes);
+
     MPI_Finalize();
     /* 打印处理完之后的结果(图) */
     //displayGraph(graph);
@@ -193,7 +192,4 @@ int main(int argc, char *argv[]) {
     if (recvcounts) free(recvcounts);
     if(allothersendcounts) free(allothersendcounts);
     if(sendcountswithconv) free(sendcountswithconv);
-
-    printf("程序运行结束,总共耗时:%f secs, 通信量:%ld Byte, 最大消耗内存:(未统计)Byte\n", 
-            MPI_Wtime() - starttime, totalRecvBytes);
 }

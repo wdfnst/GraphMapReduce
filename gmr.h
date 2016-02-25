@@ -37,7 +37,7 @@ struct KV {
 };
 
 /* 用于对KV的key进行排序的lambda函数 */
-auto KVComp = [](KV &kv1, KV &kv2) {
+auto KVComp = [](KV &kv1, KV &kv2) -> bool {
     if (kv1.key < kv2.key)
         return true;
     else if (kv1.key == kv2.key) {

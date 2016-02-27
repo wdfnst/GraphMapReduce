@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include <list>
+#include <map>
 #include <bitset>
 #include <iterator>
 #include <algorithm>
@@ -34,8 +35,8 @@ int main(int argc, char *argv[]) {
     /* 子图文件和用到的图算法实现类 */
     char subgraphfilename[256];
     graph_t *graph;
-    GMR *gmr = new PageRank();
-    //GMR *gmr = new SSSP(1);
+    //GMR *gmr = new PageRank();
+    GMR *gmr = new SSSP(1);
     //GMR *gmr = new TriangleCount();
 
     /* 初始化MPI */

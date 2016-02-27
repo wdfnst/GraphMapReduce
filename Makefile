@@ -9,7 +9,7 @@ CC_FLAG=-Wall -std=c++11
 OBJ=
 PRG=gmr
 
-$(PRG):
+$(PRG): *.cpp *.h
 		$(CC) $(CC_FLAG) $(INC) $(LIB) -o $@ $@.cpp
 			
 .SUFFIXES: .c .o .cpp

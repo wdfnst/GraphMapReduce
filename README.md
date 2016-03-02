@@ -17,8 +17,24 @@
 ### 1. 编译gmr
 make clean && make    
 ### 2. 运行gmr
-./startgmr.sh (或者mpirun -np 3(注:进程数) ./gmr)
-> 注: 目前正在移植Parmetis(MPI-based)分图部分代码, 所以暂时只能运行graph/已经分好的例图。因为例图都被分为了三个子图，所以目前只能运行三个MPI进程。        
+1. 单机上运行
+调用启动脚本: ./startgmr.sh [algorithm] [partition] [graphfile]    
+目前支持的算法、分图方法和图文件如下:    
+./startgmr.sh [pagerank 或 sssp 或 trianglecount] [random 或 metis] [small 或 4elt 或 mdual]    
+示例: ./startgmr.sh pagerank metis small 或 ./startgmr.sh sssp random 4elt    
+或者直接调用mpirun命令进行运行:    
+示例: i.) mpirun -np 3 gmr pagerank; ii.) mpirun -np 3 sssp random; iii.)mpirun -np 3 trianglecount metis 4elt.    
+2. 集群上运行    
+调用脚本命令: ./startgmr.sh cluster hosts [algorithm] [partition] [graphfile]    
+i.)./startgmr.sh cluster hosts pagerank    
+ii.)./startgmr.sh cluster hosts sssp random    
+iiii.)./startgmr.sh cluster hosts trianglecount metis 4elt    
+或者直接调用mpirun命令进行运行:    
+mpirun -machinefile hosts -np process_num     
+示例:i.) mpirun -machinefile hosts -np 10 gmr    
+    ii.) mpirun -machinefile hosts -np 10 gmr pagerank random    
+    iii.)mpirun -machinefile hosts -np 10 gmr pagerank trianglecount metis 4elt    
+> 注: i.)如果使用metis分图方式, 需要先使用metis分图工具将图文件分图, gpmetis工具位于目录pathtogmr/include/metis/,根据平台不同可能需要编译;ii.)使用random分图格式的图文件格式，文件每行记录from_vid to_vid.        
 
 ### 3. (non-mandatory)切图
 目前提供了两种分图方式:
@@ -34,11 +50,17 @@ MPI进程按照其进程号依次等分的读取图文件的顶点，切分文�
 结算进程之间通信通过MPI实现；
 #### 2. MapReduce编程模型
 #### 3. 图划分:
-为了将全图的不同部分放到不同的计算节点进行并行计算，需要将整划分为若干子图。划分工具采用开源的Parmetis进行(为方便使用，正在进行整合)。Parmetis是基于MPI进行大规模的子图划分，为了方便和适应我们的算法，我们对Parmetis的输出结果进行了重写，每个输出的节点的格式如下:
+目前采用两种方式的输入图格式:
+1. 普通图文件格式: from_vid to_vid
+这种输入图格式，在运行程序的时候需要选择"random"的partition方式(分图方式)。程序的各个进程将会并行且均分的读取文件的相应部分。(这种方式会导致迭代计算过程中信息交换量急剧增加.)
+
+2. metis输出的子图格式
+为了将全图的不同部分放到不同的计算节点进行并行计算，需要将原图划分为若干子图。划分工具采用开源的Parmetis进行(为方便使用，正在进行整合)。Parmetis是基于MPI进行大规模的子图划分，为了方便和适应我们的算法，我们对Parmetis的输出结果进行了重写，每个输出的节点的格式如下:
 ```
 #节点id    节点权重       邻居1的id  邻居1所在进程        邻居1所在边权重 ...邻居N的id  邻居N所在进程        邻居N所在边权重
 vertex_id vertex_weight neighbor1 neighbor1.location edge1.weight ... neighborN neighborN.location edgeN.weight
-```
+```    
+为方便测试，测试数据目录graph/目录中已经分好了三个不同规模的图small、4elt、mdual，定点数和边数从几十个到几百万个。
 
 ## 三、迭代计算过程
 #### 1. 数据交换:

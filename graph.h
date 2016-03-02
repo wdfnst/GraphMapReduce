@@ -8,6 +8,8 @@
 /* List terminator for GKfree() */
 #define LTERM                   (void **) 0
 #define GK_GRAPH_FMT_METIS      1
+#define GRAPH_DEBUG             false 
+#define GRAPH_INFO              false 
 
 /* MAX_PROCESSOR: 最大子图个数 
  * ntxs:          当前进程使用的子图中顶点数
@@ -115,6 +117,437 @@ void graph_Free(graph_t **graph)
   my_free((void **)graph, LTERM);
 }
 
+/* 打印图信息 */
+void displayGraph(graph_t *graph) {
+    int hasvwgts, hasvsizes, hasewgts, haseloc;
+    hasewgts  = (graph->iadjwgt || graph->fadjwgt);
+    hasvwgts  = (graph->ivwgts || graph->fvwgts);
+    hasvsizes = (graph->ivsizes || graph->fvsizes);
+    haseloc   = graph->adjloc != NULL;
+
+    for (int i=0; i<graph->nvtxs; i++) {
+        if (hasvsizes) {
+            if (graph->ivsizes)
+                printf(" %d", graph->ivsizes[i]);
+            else
+                printf(" %f", graph->fvsizes[i]);
+        }
+        if (hasvwgts) {
+            if (graph->ivwgts)
+                printf(" %d", graph->ivwgts[i]);
+            else
+                printf(" %f", graph->fvwgts[i]);
+        }
+
+        for (int j=graph->xadj[i]; j<graph->xadj[i+1]; j++) {
+            printf(" %d", graph->adjncy[j]);
+            if (haseloc)
+                printf(" %d", graph->adjloc[j]);
+            if (hasewgts) {
+                if (graph->iadjwgt)
+                    printf(" %d", graph->iadjwgt[j]);
+                else 
+                    printf(" %f", graph->fadjwgt[j]);
+                }
+        }
+        printf("\n");
+    }
+}
+
+/*************************************************************************/
+/*! 用于查找文件中分割图的的边界顶点
+    \param filename is the file that stores the data.
+    \param size is the size of processes in MPI world
+*/
+/*************************************************************************/
+int *find_Separator(std::string filename, size_t size) {
+    int *separator = (int*)malloc(size * sizeof(int));
+
+    size_t filesize = 0, partitionsize = 0;
+    std::string line;
+    std::ifstream is(filename);
+
+    /* get length of file */
+    if (is) {
+        is.seekg (0, is.end);
+        filesize = is.tellg();
+        partitionsize = filesize / size;
+    }
+
+    /* 依次寻找每个子图的分界顶点 */
+    for (int i = 1; i < size; i++) {
+        int pre_vid = -1, cur_vid, cur_to;
+        /* 向后寻找前一个出现的顶点id: pre_vid */
+        /* 文件头 */
+        is.seekg (i * partitionsize, is.beg);
+        if (is.tellg() == 0) {
+            pre_vid = -1;
+        }
+        else {
+            for (int i = -2; i > -50; i--) {
+                is.seekg(i, is.cur);
+                char cur_char = is.get();
+                if (is.tellg() == 1) {
+                    is.seekg(0, is.beg);
+                    std::getline(is, line);
+                    std::istringstream(line) >> pre_vid;
+                    if (GRAPH_DEBUG) std::cout << "Process " << i << " pre_vid:"
+                        << pre_vid << " (" << line << ")" << std::endl;
+                    break;
+                }
+                if (cur_char == '\n' || is.tellg() == 1) {
+                    std::getline(is, line);
+                    std::istringstream(line) >> pre_vid;
+                    if (GRAPH_DEBUG) std::cout << "Process " << i << " pre_vid:"
+                        << pre_vid << " (" << line << ")" << std::endl;
+                    break;
+                }
+                else
+                    is.seekg(-1 * i - 1, is.cur);
+            }
+        }
+        /* 向前寻找最近一个出现的顶点id: cur_vid */
+        /* 如果当前位置正好是行首(前一个位置必定为行末\n), 则取当前行的start_vid, 
+         *  否则取下一行的start_vid */
+        if (is.tellg() == 0) {
+            std::getline(is, line);
+            std::istringstream(line) >> cur_vid >> cur_to;
+        }
+        else if (is.tellg() >= filesize) {
+            cur_vid = -1;
+        }
+        else {
+            is.seekg(-1, is.cur);
+            char cur_char = is.get();
+            if (cur_char == '\n') {
+                std::getline(is, line);
+                std::istringstream(line) >> cur_vid >> cur_to;
+            }
+            else {
+                std::getline(is, line);
+                std::getline(is, line);
+                std::istringstream(line) >> cur_vid;
+            }
+        }
+
+        /* 比较当前vid和前一行出现的vid是否相同, 不同则把当前vid当做当前数据块的第
+         一个顶点, 否则继续寻找下一个和当前vid不同的顶点作为当前数据块的第一个顶点 */
+        if (pre_vid == cur_vid) {
+            while(getline(is, line)) {
+                std::istringstream(line) >> cur_vid >> cur_to;
+                if (cur_vid != pre_vid) break;
+            }
+        }
+
+        separator[i] = cur_vid;
+    }
+
+    if (GRAPH_DEBUG) {
+        for (int i = 1; i < size; i++)
+            std::cout << separator[i] << " ";
+        std::cout << std::endl;
+    }
+
+    return separator;
+}
+
+/*************************************************************************/
+/*! 寻找顶点所在的子图
+    \param separator 每个子图中的最小顶点id
+    \param size 子图数目
+    \param vid 想要定位顶点的id
+*/
+/*************************************************************************/
+int find_edge_loc(int *separator, int size, int vid) {
+    int i = 1;
+    while(vid >= separator[i] && i < size) i++;
+    return i - 1;
+}
+
+/*************************************************************************/
+/*! Read a partition of graph file to the order of process id
+    \param filename is the file that stores the data.
+    \param rank is the rank of process in MPI world
+    \param size is the size of processes in MPI world
+*/
+/*************************************************************************/
+graph_t *graph_Read(std::string filename, size_t rank, size_t size) {
+    int nvtxs = 0, nedges = 0;
+    size_t filesize = 0, partitionsize = 0;
+    std::string line;
+    std::ifstream is(filename);
+    /* 创建图结构体, 并申请图中数据所用到的空间 */
+    graph_t *graph = graph_Create();
+
+    int *separator = find_Separator(filename, size);
+
+    /* get length of file */
+    if (is) {
+        is.seekg (0, is.end);
+        filesize = is.tellg();
+        partitionsize = filesize / size;
+    }
+
+    /* pre_vid: 当前数据块开始顶点id的前一个顶点id;
+     * cur_vid: 当前数据块开始的顶点id; cur_to: 当前遍历边的终止点 */
+    int pre_vid = -1, cur_vid, cur_to;
+    /* 向后寻找前一个出现的顶点id: pre_vid */
+    /* 文件头 */
+    is.seekg (rank * partitionsize, is.beg);
+    if (is.tellg() == 0) {
+        pre_vid = -1;
+    }
+    else {
+        for (int i = -2; i > -50; i--) {
+            is.seekg(i, is.cur);
+            char cur_char = is.get();
+            if (is.tellg() == 1) {
+                is.seekg(0, is.beg);
+                std::getline(is, line);
+                std::istringstream(line) >> pre_vid;
+                if (GRAPH_DEBUG) std::cout << "Process " << rank << " pre_vid:" << pre_vid << " ("
+                        << line << ")" << std::endl;
+                break;
+            }
+            if (cur_char == '\n' || is.tellg() == 1) {
+                std::getline(is, line);
+                std::istringstream(line) >> pre_vid;
+                if (GRAPH_DEBUG) std::cout << "Process " << rank << " pre_vid:" << pre_vid << " ("
+                        << line << ")" << std::endl;
+                break;
+            }
+            else
+                is.seekg(-1 * i - 1, is.cur);
+        }
+    }
+    /* 向前寻找最近一个出现的顶点id: cur_vid */
+    /* 如果当前位置正好是行首(前一个位置必定为行末\n), 则取当前行的start_vid,
+     *  否则取下一行的start_vid */
+    if (is.tellg() == 0) {
+        std::getline(is, line);
+        std::istringstream(line) >> cur_vid >> cur_to;
+    }
+    else if (is.tellg() >= filesize) {
+        cur_vid = -1;
+    }
+    else {
+        is.seekg(-1, is.cur);
+        char cur_char = is.get();
+        if (cur_char == '\n') {
+            std::getline(is, line);
+            std::istringstream(line) >> cur_vid >> cur_to;
+        }
+        else {
+            std::getline(is, line);
+            std::getline(is, line);
+            std::istringstream(line) >> cur_vid;
+        }
+    }
+
+    /* 如果cur_vid已经为-1, 表示此时文件已经到尾部 */
+    if (cur_vid == -1) { return graph; }
+
+    /* 比较当前vid和前一行出现的vid是否相同, 不同则把当前vid当做当前数据块的第
+     一个顶点, 否则继续寻找下一个和当前vid不同的顶点作为当前数据块的第一个顶点 */
+    if (pre_vid == cur_vid) {
+        while(getline(is, line)) {
+            std::istringstream(line) >> cur_vid >> cur_to;
+            if (cur_vid != pre_vid) break;
+        }
+    }
+    
+    /* 继续读取数据块中的顶点, 即使超过界限也需要将最后一个顶点的边读取完毕 */
+    nvtxs++, nedges++;
+    if (GRAPH_DEBUG) std::cout << "Process " << rank << ":" << cur_vid << "->" << cur_to << " ";
+    if (is.tellg() < (rank + 1) * partitionsize) {
+        while(getline(is, line)) {
+            int a;
+            std::istringstream(line) >> a >> cur_to;
+            if (a != cur_vid) {
+                if (GRAPH_DEBUG) std::cout << std::endl << "process " << rank << ":" << a 
+                    << "->" << cur_to << " ";
+                cur_vid = a;
+                nvtxs++, nedges++;
+            }
+            else {
+                nedges++;
+                if (GRAPH_DEBUG) std::cout << cur_to << " ";
+            }
+
+            /* 如果当前位置超出当前数据块的上界, 仍然需要将当前顶点读取完毕 */
+            if (is.tellg() >= (rank + 1) * partitionsize) {
+                while(getline(is, line)) {
+                    std::istringstream(line) >> a >> cur_to;
+                    if (a != cur_vid) break;
+                    nedges++;
+                    if (GRAPH_DEBUG) std::cout << cur_to << " ";
+                }
+                break;
+            }
+        }
+        if (GRAPH_DEBUG) std::cout << std::endl;
+    }
+
+    /* 打印当前节点的子图的顶点个数和边数 */
+    if (GRAPH_INFO) std::cout << "Process " << rank << ": nvtxs(" << nvtxs 
+        << "), edges(" << nedges << ").\n";
+
+    /* 为图申请存储空间 */
+    graph->nvtxs = nvtxs;
+    graph->xadj   = (ssize_t*)malloc(sizeof(ssize_t) * (nvtxs+1));
+    graph->adjncy = (int32_t*)malloc(sizeof(int32_t) * nedges);
+    graph->status = (int32_t*)malloc(sizeof(int32_t) * nvtxs);
+    graph->ivsizes = (int32_t*)malloc(sizeof(int32_t) * nvtxs);
+    graph->adjloc = (int32_t*)malloc(sizeof(int32_t) * nedges);
+    graph->fvwgts = (float*)malloc(sizeof(float) * nvtxs);
+    graph->fadjwgt = (float*)malloc(sizeof(float) * nedges);
+
+    /* 向后寻找前一个出现的顶点id: pre_vid */
+    /* 文件头 */
+    nvtxs = 0, nedges = 0;
+    if (is.tellg() == -1) {
+        is.close();
+        is.open(filename);
+    }
+    is.seekg (rank * partitionsize, is.beg);
+    if (is.tellg() == 0) {
+        pre_vid = -1;
+    }
+    else {
+        for (int i = -2; i > -50; i--) {
+            is.seekg(i, is.cur);
+            char cur_char = is.get();
+            if (is.tellg() == 1) {
+                is.seekg(0, is.beg);
+                std::getline(is, line);
+                std::istringstream(line) >> pre_vid;
+                break;
+            }
+            if (cur_char == '\n' || is.tellg() == 1) {
+                std::getline(is, line);
+                std::istringstream(line) >> pre_vid;
+                break;
+            }
+            else
+                is.seekg(-1 * i - 1, is.cur);
+        }
+    }
+    /* 向前寻找最近一个出现的顶点id: cur_vid */
+    /* 如果当前位置正好是行首(前一个位置必定为行末\n), 则取当前行的start_vid,
+     *  否则取下一行的start_vid */
+    if (is.tellg() == 0) {
+        std::getline(is, line);
+        std::istringstream(line) >> cur_vid >> cur_to;
+    }
+    else if (is.tellg() >= filesize) {
+        cur_vid = -1;
+    }
+    else {
+        is.seekg(-1, is.cur);
+        char cur_char = is.get();
+        if (cur_char == '\n') {
+            std::getline(is, line);
+            std::istringstream(line) >> cur_vid >> cur_to;
+        }
+        else {
+            std::getline(is, line);
+            std::getline(is, line);
+            std::istringstream(line) >> cur_vid;
+        }
+    }
+
+    /* 如果cur_vid已经为-1, 表示此时文件已经到尾部 */
+    if (cur_vid == -1) { return graph; }
+
+    /* 比较当前vid和前一行出现的vid是否相同, 不同则把当前vid当做当前数据块的第
+     一个顶点, 否则继续寻找下一个和当前vid不同的顶点作为当前数据块的第一个顶点 */
+    if (pre_vid == cur_vid) {
+        while(getline(is, line)) {
+            std::istringstream(line) >> cur_vid >> cur_to;
+            if (cur_vid != pre_vid) break;
+        }
+    }
+
+    if (GRAPH_DEBUG) std::cout << "PPPProcess " << rank << ":" << cur_vid << "->" << cur_to << " ";
+    
+    /* 继续读取数据块中的顶点, 即使超过界限也需要将最后一个顶点的边读取完毕 */
+    graph->xadj[0] = 0;
+    graph->adjloc[nvtxs] = rank;
+    graph->status[nvtxs] = active;
+    graph->fvwgts[nvtxs] = 1.0;
+    graph->fadjwgt[nedges] = 1.0;
+    graph->ivsizes[nvtxs++] = cur_vid;
+    graph->adjloc[nedges] = find_edge_loc(separator, size, cur_to);
+    graph->adjncy[nedges++] = cur_to;
+    if (is.tellg() < (rank + 1) * partitionsize) {
+        while(getline(is, line)) {
+            int a;
+            std::istringstream(line) >> a >> cur_to;
+            if (a != cur_vid) {
+                if (GRAPH_DEBUG) std::cout << std::endl << "PPPProcess " 
+                    << rank << ":" << a << "->" << cur_to << " ";
+                cur_vid = a;
+                graph->status[nvtxs] = active;
+                graph->fvwgts[nvtxs] = 1.0;
+                graph->fadjwgt[nedges] = 1.0;
+                graph->xadj[nvtxs] = nedges;
+                graph->ivsizes[nvtxs++] = cur_vid;
+                graph->adjloc[nedges] = find_edge_loc(separator, size, cur_to);
+                graph->adjncy[nedges++] = cur_to;
+            }
+            else {
+                if (GRAPH_DEBUG) std::cout << cur_to << " ";
+                graph->fadjwgt[nedges] = 1.0;
+                graph->adjloc[nedges] = find_edge_loc(separator, size, cur_to);
+                graph->adjncy[nedges++] = cur_to;
+            }
+
+            /* 如果当前位置超出当前数据块的上界, 仍然需要将当前顶点读取完毕 */
+            if (is.tellg() >= (rank + 1) * partitionsize) {
+                while(getline(is, line)) {
+                    std::istringstream(line) >> a >> cur_to;
+                    if (a != cur_vid) {
+                        break;
+                    }
+                    graph->fadjwgt[nedges] = 1.0;
+                    graph->adjloc[nedges] = find_edge_loc(separator, size, cur_to);
+                    graph->adjncy[nedges++] = cur_to;
+                    if (GRAPH_DEBUG) std::cout << cur_to << " ";
+                }
+                break;
+            }
+        }
+    }
+    graph->xadj[nvtxs] = nedges;
+
+    if (GRAPH_INFO) std::cout << "Process " << rank << " G(" << graph->nvtxs
+        << "," << nedges << ")" << std::endl;
+    if (GRAPH_INFO) std::cout << "Process " << rank << " ivsizes:";
+    for (int i = 0; i < graph->nvtxs; i++) {
+        if (GRAPH_INFO) std::cout << graph->ivsizes[i] << " ";
+    }
+    if (GRAPH_INFO) std::cout << std::endl;
+    if (GRAPH_INFO) std::cout << "Process " << rank << " xadj:";
+    for (int i = 0; i < graph->nvtxs + 1; i++) {
+        if (GRAPH_INFO) std::cout << graph->xadj[i] << " ";
+    }
+    if (GRAPH_INFO) std::cout << std::endl;
+    if (GRAPH_INFO) std::cout << "Process " << rank << " adjncy:";
+    for (int i = 0; i < nedges; i++) {
+        if (GRAPH_INFO) std::cout << graph->adjncy[i] << " ";
+    }
+    if (GRAPH_INFO) std::cout << std::endl;
+    if (GRAPH_INFO) std::cout << "Process " << rank << " adjloc:";
+    for (int i = 0; i < nedges; i++) {
+        if (GRAPH_INFO) std::cout << graph->adjloc[i] << " ";
+    }
+    if (GRAPH_INFO) std::cout << std::endl;
+
+    if (separator) free(separator);
+
+    return graph;
+}
+
 /**************************************************************************/
 /*! Reads a sparse graph from the supplied file 
     \param filename is the file that stores the data.
@@ -162,7 +595,7 @@ graph_t *graph_Read(std::string filename, int format, int isfewgts,
     readwgts    = (fmtstr[1] == '1');
     readvals    = (fmtstr[2] == '1');
     readedgeloc = (fmtstr[3] == '1');
-    numbering   = 1;
+    //numbering   = 1;
     ncon        = (ncon == 0 ? 1 : ncon);
 
     /* 创建图结构体, 并申请图中数据所用到的空间 */
@@ -273,45 +706,6 @@ graph_t *graph_Read(std::string filename, int format, int isfewgts,
                        "the input file. nedges, Actualnedges.\n");
   fin.close();
   return graph;
-}
-
-/* 打印图信息 */
-void displayGraph(graph_t *graph) {
-    int hasvwgts, hasvsizes, hasewgts, haseloc;
-    hasewgts  = (graph->iadjwgt || graph->fadjwgt);
-    hasvwgts  = (graph->ivwgts || graph->fvwgts);
-    hasvsizes = (graph->ivsizes || graph->fvsizes);
-    haseloc   = graph->adjloc != NULL;
-
-    for (int i=0; i<graph->nvtxs; i++) {
-        if (hasvsizes) {
-            if (graph->ivsizes)
-                printf(" %d", graph->ivsizes[i]);
-            else
-                printf(" %f", graph->fvsizes[i]);
-        }
-        if (hasvwgts) {
-            if (graph->ivwgts)
-                printf(" %d", graph->ivwgts[i]);
-            else
-                printf(" %f", graph->fvwgts[i]);
-        }
-
-        for (int j=graph->xadj[i]; j<graph->xadj[i+1]; j++) {
-            /* graph的邻居点数组中实际上存储的是以0开始的顶点,实际使用是以1开始
-             * 所以需要在顶点原值的基础上加1 */
-            printf(" %d", graph->adjncy[j]+1);
-            if (haseloc)
-                printf(" %d", graph->adjloc[j]);
-            if (hasewgts) {
-                if (graph->iadjwgt)
-                    printf(" %d", graph->iadjwgt[j]);
-                else 
-                    printf(" %f", graph->fadjwgt[j]);
-                }
-        }
-        printf("\n");
-    }
 }
 
 /* 获取发往其他各运算节点的字节数 */

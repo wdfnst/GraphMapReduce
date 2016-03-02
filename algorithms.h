@@ -100,6 +100,9 @@ class TriangleCount : public GMR {
         printf("==========>TriangleCount<==========\n");
         /* TriangleCount算法中, 只需要迭代一次即可结束 */
         algoIterNum = 1;
+        /* 子图的更新方式为累加形式, 即△ (1, 2, 3)和△ (1, 4, 5)都作为
+         * 顶点1的值累加上去 */
+        upmode = accu;
         /* 将所有顶点的值都赋为0, 最后存储以此顶点出发的三角形个数 */
         for (int i=0; i<graph->nvtxs; i++)
             graph->fvwgts[i] = 0;
@@ -119,7 +122,7 @@ class TriangleCount : public GMR {
             else
                 tempKV.key = v.neighbors[i], tempKV.skey = v.id;
             kvs.push_back(tempKV);
-            if(DEBUG) printf("Pair.key(%d %d)\n", tempKV.key, tempKV.skey);
+            if(DEBUG) printf("Pair.key(%d %d)->", tempKV.key, tempKV.skey);
         }
     }
 
@@ -143,7 +146,7 @@ class TriangleCount : public GMR {
         }
         if (DEBUG) printf("reduce result: (%d %d):%d\n", kvs.front().key, 
                 kvs.front().skey, sum);
-        return {kvs.front().key, static_cast<float>(sum)};
+        return {kvs.front().key, kvs.front().skey, static_cast<float>(sum)};
     }
 
     /* 比较Key/Value的key */

@@ -36,8 +36,8 @@ int main(int argc, char *argv[]) {
     char subgraphfilename[256];
     graph_t *graph;
     //GMR *gmr = new PageRank();
-    GMR *gmr = new SSSP(1);
-    //GMR *gmr = new TriangleCount();
+    //GMR *gmr = new SSSP(1);
+    GMR *gmr = new TriangleCount();
 
     /* 初始化MPI */
     MPI_Init(&argc,&argv);
@@ -59,10 +59,12 @@ int main(int argc, char *argv[]) {
 
     /* 根据进程号, 拼接子图文件名, 并读取子图到结构体graph中 */
     sprintf(subgraphfilename, "graph/mdual.graph.subgraph.%d", rank);
+//     graph = graph_Read("graph/tinys.graph", rank, size);
     graph = graph_Read(subgraphfilename, GK_GRAPH_FMT_METIS, 1, 1, 0);
     ntxs = graph->nvtxs;
-    if(INFO) printf("%d 节点和边数: %d %zd\n", rank, graph->nvtxs, graph->xadj[graph->nvtxs]);
-    if (INFO) displayGraph(graph);
+    if(INFO) printf("%d 节点和边数: %d %zd\n", rank, graph->nvtxs,
+            graph->xadj[graph->nvtxs]);
+    if (DEBUG) displayGraph(graph);
 
     /* 首先使用算法对图进行初始化:
      * PageRank: 初始化为空
@@ -179,10 +181,10 @@ int main(int argc, char *argv[]) {
         /* 释放内存, 并打印迭代信息 */
         free(sendcounts);
         iterNum++;
-        printTimeConsume();
+        printTimeConsume(rank);
     }
-    printf("程序运行结束,总共耗时:%f secs, 通信量:%ld Byte, 最大消耗内存:(未统计)Byte\n", 
-            MPI_Wtime() - starttime, totalRecvBytes);
+    printf("程序运行结束,总共耗时:%f secs, 通信量:%ld Byte, 最大消耗"
+            "内存:(未统计)Byte\n", MPI_Wtime() - starttime, totalRecvBytes);
 
     MPI_Finalize();
     /* 打印处理完之后的结果(图) */

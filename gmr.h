@@ -5,8 +5,13 @@
 /**************************************************************************/
 
 /* 判断是否在控制台打印调试信息 */
-#define INFO   false 
+#define INFO   false
 #define DEBUG  false 
+
+/* 子图更新的方式:
+ * accu: 累计方式, 将新值累加在原值之上;
+ * cover: 覆写方式, 新值覆盖掉原值 */
+enum UpdateMode {accu, cover};
 
 /* timerRecorder:  迭代步的各个子过程耗时
  * totalRecvBytes: 目前为止, 接收到的字节数
@@ -79,6 +84,7 @@ public:
     virtual void map(Vertex &v, std::list<KV> &kvs) = 0;
 
     /* 用于将Map/Reduce计算过程中产生的KV list进行排序 */
+    /* TODO: 采用OpenMP进行排序优化 */
     virtual void sort(std::list<KV> &kvs) = 0;
 
     /* Map/Reduce编程模型中的Reduce函数 */
@@ -99,11 +105,14 @@ public:
 
     /* 算法需要迭代的次数, 默认为系统设置的最大迭代次数 */
     static size_t algoIterNum;
+    /* 算法采取的子图更新方式:累加或者覆盖 */
+    static UpdateMode upmode;
 };
 size_t GMR::algoIterNum = INT_MAX;
+UpdateMode GMR::upmode = cover;
 
 /* 将图中指定id的顶点的值进行更新, 并返回迭代是否结束 */
-void updateGraph(graph_t *graph, std::list<KV> &reduceResult) {
+void updateGraph(graph_t *graph, std::list<KV> &reduceResult, UpdateMode upmode) {
     int i = 0;
     float currentMaxDeviation = 0.0;
     auto iter = reduceResult.begin();
@@ -117,8 +126,8 @@ void updateGraph(graph_t *graph, std::list<KV> &reduceResult) {
             /* 与老值进行比较, 如果变化小于threhold,则将vertex.status设置为inactive */
             if (deviation > threshold) {
                 if (deviation > currentMaxDeviation) currentMaxDeviation = deviation;
-                if(INFO) printf("迭代误差: fabs(%f - %f) = %f\n", iter->value,
-                        graph->fvwgts[i], deviation);
+                if(DEBUG) printf("迭代误差: v%d: fabs(%f - %f) = %f\n", iter->key,
+                        iter->value, graph->fvwgts[i], deviation);
                 if(graph->status[i] == inactive) {
                     graph->status[i] = active;
                     convergentVertex--;
@@ -130,8 +139,12 @@ void updateGraph(graph_t *graph, std::list<KV> &reduceResult) {
                     graph->status[i] = inactive;
                 }
             }
-            graph->fvwgts[i] = iter->value;
-            i++; iter++;
+            if (upmode == accu) 
+                graph->fvwgts[i] += iter->value;
+            else if (upmode == cover)
+                graph->fvwgts[i] = iter->value;
+            /* 对同一个键值, 可能有多个规约结果, 所以只自增递归结果的迭代器 */
+            iter++; //i++;
         }
     }
 
@@ -152,9 +165,7 @@ void computing(int rank, graph_t *graph, char *rb, int recvbuffersize, GMR *gmr)
         vertex.neighborSize = graph->xadj[i+1] - graph->xadj[i];
         int neighbor_sn = 0;
         for (int j=graph->xadj[i]; j<graph->xadj[i+1]; j++, neighbor_sn++) {
-            /* graph的邻居点数组中实际上存储的是以0开始的顶点,实际使用是以1开始
-             * 所以需要在顶点原值的基础上加1 */
-            vertex.neighbors[neighbor_sn] = graph->adjncy[j] + 1;
+            vertex.neighbors[neighbor_sn] = graph->adjncy[j];
             /* 将边的权重从图中顶点拷贝到vertex.edgewgt[k++]中 */
             vertex.edgewgt[neighbor_sn] = graph->fadjwgt[j];
         }
@@ -180,8 +191,8 @@ void computing(int rank, graph_t *graph, char *rb, int recvbuffersize, GMR *gmr)
         i += sizeof(int);
         for (int j = 0; j < edgenum; j++, i += sizeof(int)) {
             memcpy(&eid, rb + i, sizeof(int));
-            if(DEBUG) printf(" %d", eid + 1);
-            vertex.neighbors[j] = eid + 1;
+            if(DEBUG) printf(" %d", eid);
+            vertex.neighbors[j] = eid;
         }
         for (int j = 0; j < edgenum; j++, i += sizeof(int)) {
             memcpy(&eloc, rb + i, sizeof(int));
@@ -220,16 +231,16 @@ void computing(int rank, graph_t *graph, char *rb, int recvbuffersize, GMR *gmr)
 
     /* 将最终迭代的结果进行更新到子图上, 并判断迭代是否结束 */
     recordTick("bupdategraph");
-    updateGraph(graph, reduceResult);
+    updateGraph(graph, reduceResult, gmr->upmode);
     recordTick("eupdategraph");
 }
 
 /* 打印计算的过程中的信息: 迭代次数, 各个步骤耗时 */
-void printTimeConsume() {
-    printf("迭代次数:%d(%-6.2f\%%), 迭代残余误差:%ef, 本次迭代耗时:%f=(%f[exdata]"
-            " + %f[map] + %f" "[reduce] + %f[updategraph] + %f[computing])\n", 
-            iterNum, convergentVertex * 1.0 / ntxs * 100 , remainDeviation,
-            timeRecorder["eiteration"] - timeRecorder["bexchangecounts"],
+void printTimeConsume(int rank) {
+    printf("Process %d 迭代次数:%d(%-6.2f\%%), 迭代残余误差:%ef, 本次迭代耗时:"
+            "%f=(%f[exdata] + %f[map] + %f" "[reduce] + %f[updategraph] + %f"
+            "[computing])\n", rank, iterNum, convergentVertex * 1.0 / ntxs * 100,
+            remainDeviation, timeRecorder["eiteration"] - timeRecorder["bexchangecounts"],
             timeRecorder["eexchangedata"] - timeRecorder["bexchangedata"],
             timeRecorder["erecvbuffermap"] - timeRecorder["bgraphmap"],
             timeRecorder["ereduce"] - timeRecorder["breduce"], 

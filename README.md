@@ -21,7 +21,11 @@ make clean && make
 > 注: 目前正在移植Parmetis(MPI-based)分图部分代码, 所以暂时只能运行graph/已经分好的例图。因为例图都被分为了三个子图，所以目前只能运行三个MPI进程。        
 
 ### 3. (non-mandatory)切图
-目前正在整合并行切图工具Parmetis, 现阶段只能先通过改写的metis进行切图(需要重新编译metis代码，然后运行"gpmetis graphfilename partsnumber"), 或者直接采用切好的示例图库(graph/)中的图进行测试(small.subgraph.* 4elt.graph.* mdual.graph.*分别为不同规模的图例).
+目前提供了两种分图方式:
+1. 随机切分方式    
+MPI进程按照其进程号依次等分的读取图文件的顶点，切分文件的时候，一个顶点只分配给一个MPI进程。(调用gmr启动脚本startgmr.sh默认采用这种分图方式。)    
+2. Metis分图方式
+为了最大的保留图内顶点的链接信息，不仅可以减少MPI进程之间的传输量，还能最大化保持图内顶点生成的键值对的局部性，从而减少Map、Reduce、Sort的工作量。所以，GMR另外还提供metis工具进行切图(需要重新编译metis代码，然后运行"gpmetis graphfilename partsnumber"), 或者直接采用切好的示例图库(graph/)中的图进行测试(small.subgraph.* 4elt.graph.* mdual.graph.*分别为不同规模的图例).
 目前切图工具采用了metis库，其源码和说明位于include/metis中，其编译使用可参考include/metis/README.md。
 
 

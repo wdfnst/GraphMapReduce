@@ -27,17 +27,19 @@
 
 using namespace std;
 
+/** 运行示例:
+ * 1.)单机运行: mpirun -np pro_num ./gmr algorithm partition graphfile
+ * 2.)集群运行: mpirun -mahcinefile hosts ./gmr algorithm partition graphfile
+ */
 int main(int argc, char *argv[]) {
     /* rank, size: MPI进程序号和进程数, sb: 发送缓存, rb: 接收缓存 */
     int rank, size, i;
     char *sb = nullptr, *rb = nullptr;
-
-    /* 子图文件和用到的图算法实现类 */
-    char subgraphfilename[256];
     graph_t *graph;
-    //GMR *gmr = new PageRank();
-    //GMR *gmr = new SSSP(1);
-    GMR *gmr = new TriangleCount();
+    char graphfilename[256];
+    char randomgraphfilepath[256];
+    char metisgraphfilepath[256];
+    GMR *gmr = nullptr;
 
     /* 初始化MPI */
     MPI_Init(&argc,&argv);
@@ -57,10 +59,61 @@ int main(int argc, char *argv[]) {
     int *sdispls            = (int*)malloc(size * sizeof(int));
     int *rdispls            = (int*)malloc(size * sizeof(int));
 
-    /* 根据进程号, 拼接子图文件名, 并读取子图到结构体graph中 */
-    sprintf(subgraphfilename, "graph/mdual.graph.subgraph.%d", rank);
-//     graph = graph_Read("graph/tinys.graph", rank, size);
-    graph = graph_Read(subgraphfilename, GK_GRAPH_FMT_METIS, 1, 1, 0);
+    /* 如果没有提供任何命令行参数, 则采用默认算法和分图 */
+    if (argc == 1) {
+        if(rank == 0)
+            printf("===>示例本地运行(采用rdsmall.graph图文件和随机分图算法)<===\n");
+    }
+    /* 参数提供的顺序: mpirun -np 3 gmr algorithm partition graphfile */
+    /* 参数个数大于4时, 显示程序的调用格式 */
+    if (argc > 4) {
+        printf("Usage:1.)mpirun -np 3 ./gmr graphfile random\n"
+                     "2.)mpirun -machinefile hosts -np 3 ./gmr graphfile metis");
+        exit(0);
+    }
+    /* 根据调用命令行打开相应的图文件并采用提供的图切分算法进行切图, 
+     * 否则使用默认方式: rdmdual.graph图和随机切分算法 */
+    if (argc > 3) 
+        strcpy(graphfilename, argv[3]);
+    else
+        strcpy(graphfilename, "mdual");
+    sprintf(randomgraphfilepath, "graph/rd%s.graph", graphfilename);
+    sprintf(metisgraphfilepath, "graph/%s.graph.subgraph.%d", graphfilename, rank);
+    
+    /* 根据调用命令提供的参数, 读取不同的图文件或子图文件 */
+    if (argc > 2) {
+        if (strcmp(argv[2], "random") == 0) {
+            graph = graph_Read(randomgraphfilepath, rank, size);
+        }
+        else if (strcmp(argv[2], "metis") == 0) {
+            graph = graph_Read(metisgraphfilepath, GK_GRAPH_FMT_METIS, 1, 1, 0);
+        } 
+        else {
+            printf("目前没有提供%s的分图方法.\n", argv[2]);
+            exit(0);
+        }
+    }
+    else
+        graph = graph_Read("graph/rd4elt.graph", rank, size);
+
+    /* 根据调用命令行实例化相应算法, 没用提供则模式使用TriangeCount算法 */
+    /* 如果有提供算法名字, 则使用规定的算法 */
+    if (argc > 1) {
+        if (strcmp(argv[1], "pagerank") == 0)
+            gmr = new PageRank();
+        else if (strcmp(argv[1], "trianglecount") == 0)
+            gmr = new TriangleCount();
+        else if (strcmp(argv[1], "sssp") == 0)
+            gmr = new SSSP(1);
+        else {
+            printf("目前没有提供%s的图算法方法.\n", argv[1]);
+            exit(0);
+        }
+    }
+    else
+        gmr = new TriangleCount();
+
+    /* 将子图的顶点个数赋给进程的全局变量 */
     ntxs = graph->nvtxs;
     if(INFO) printf("%d 节点和边数: %d %zd\n", rank, graph->nvtxs,
             graph->xadj[graph->nvtxs]);

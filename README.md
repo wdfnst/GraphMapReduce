@@ -17,13 +17,16 @@
 ### 1. 编译gmr
 make clean && make    
 ### 2. 运行gmr
-|          单机运行      |          集群运行           |
+|          单机运行      |                     |
 | -------------------------------------------------------------------------|-----------|
-| 命令  |./startgmr.sh [algorithm] [partition] [graphfile]                                       | core      |
-| 支持  |./startgmr.sh [pagerank 或 sssp 或 trianglecount] [random 或 metis] [small 或 4elt 或 mdual]       | core      |
-| 举例  |[`libxmlrpc-c3-dev`](apt:libxmlrpc-c3-dev)                               | ubigraph  |
-| [`freeglut3`](apt:freeglut3)                                             | ubigraph  |
-| [`wmctrl`](apt:wmctrl)                                                   | scripts   |
+| 命令  |./startgmr.sh [algorithm] [partition] [graphfile]                      | |
+| 支持  |./startgmr.sh [pagerank 或 sssp 或 trianglecount] [random 或 metis] [small 或 4elt 或 mdual]       | |
+| 举例1 |./startgmr.sh                                             |  | 
+| 举例2 |./startgmr.sh pagerank                                    |  |
+| 举例3 |./startgmr.sh sssp random                                 |  |
+| 举例4 |./startgmr.sh sssp metis 4elt                             |  |
+| 举例5 |./startgmr.sh pagerank metis small                        |  |
+| 或者直接运行 |mpirun -np 3 gmr pagerank; ii.) mpirun -np 3 sssp random; iii.)mpirun -np 3 trianglecount metis 4elt. ||
 
 #### Fedora
 

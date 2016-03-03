@@ -144,3 +144,20 @@ Processor\Platform |   GMR      |    Spark      |   GraphX       |    GraphLab  
       8            |            |               |                |                  |             |   
       16           |            |               |                |                  |             |   
       64           |            |               |                |                  |             |   
+
+| Package                                                                  | Component |
+| -------------------------------------------------------------------------|-----------|
+| [`libboost-dev`](apt:libboost-dev)                                       | core      |
+| [`libboost-program-options-dev`](apt:libboost-program-options-dev)       | core      |
+| [`libxmlrpc-c3-dev`](apt:libxmlrpc-c3-dev)                               | ubigraph  |
+| [`freeglut3`](apt:freeglut3)                                             | ubigraph  |
+| [`wmctrl`](apt:wmctrl)                                                   | scripts   |
+
+#### Fedora
+
+| Package          | Component |
+| -----------------|-----------|
+| `boost-devel`    | core      |
+| `freeglut`       | ubigraph  |
+| `xmlrpc-c-devel` | ubigraph  |
+| `wmctrl`         | scripts   |

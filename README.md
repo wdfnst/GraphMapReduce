@@ -138,26 +138,10 @@ KV reduce(std::list<KV> &kvs) {
 ### 4.5 二度人脉算法:广度搜索算法
 
 ## 五、对比实验
-Processor\Platform |   GMR      |    Spark      |   GraphX       |    GraphLab      |     Pregel  |   
-      1            |            |               |                |                  |             |   
-      3            |            |               |                |                  |             |   
-      8            |            |               |                |                  |             |   
-      16           |            |               |                |                  |             |   
-      64           |            |               |                |                  |             |   
-
-| Package                                                                  | Component |
-| -------------------------------------------------------------------------|-----------|
-| [`libboost-dev`](apt:libboost-dev)                                       | core      |
-| [`libboost-program-options-dev`](apt:libboost-program-options-dev)       | core      |
-| [`libxmlrpc-c3-dev`](apt:libxmlrpc-c3-dev)                               | ubigraph  |
-| [`freeglut3`](apt:freeglut3)                                             | ubigraph  |
-| [`wmctrl`](apt:wmctrl)                                                   | scripts   |
-
-#### Fedora
-
-| Package          | Component |
-| -----------------|-----------|
-| `boost-devel`    | core      |
-| `freeglut`       | ubigraph  |
-| `xmlrpc-c-devel` | ubigraph  |
-| `wmctrl`         | scripts   |
+|Processor\Platform |   GMR      |    Spark      |   GraphX       |    GraphLab      |     Pregel  |   
+|-------------------|------------|---------------|----------------|------------------|-------------|
+|      1            |            |               |                |                  |             |   
+|      3            |            |               |                |                  |             |   
+|      8            |            |               |                |                  |             |   
+|      16           |            |               |                |                  |             |   
+|      64           |            |               |                |                  |             |   

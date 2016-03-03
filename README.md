@@ -17,14 +17,14 @@
 ### 1. 编译gmr
 make clean && make    
 ### 2. 运行gmr
-1. 单机上运行
+#### 1.单机上运行
 调用启动脚本: ./startgmr.sh [algorithm] [partition] [graphfile]    
 目前支持的算法、分图方法和图文件如下:    
 ./startgmr.sh [pagerank 或 sssp 或 trianglecount] [random 或 metis] [small 或 4elt 或 mdual]    
 示例: ./startgmr.sh pagerank metis small 或 ./startgmr.sh sssp random 4elt    
 或者直接调用mpirun命令进行运行:    
 示例: i.) mpirun -np 3 gmr pagerank; ii.) mpirun -np 3 sssp random; iii.)mpirun -np 3 trianglecount metis 4elt.    
-2. 集群上运行    
+#### 2. 集群上运行    
 调用脚本命令: ./startgmr.sh cluster hosts [algorithm] [partition] [graphfile]    
 i.)./startgmr.sh cluster hosts pagerank    
 ii.)./startgmr.sh cluster hosts sssp random    

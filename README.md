@@ -28,14 +28,19 @@ make clean && make
 | 举例5 |./startgmr.sh pagerank metis small                        |  |
 | 或者直接运行 |mpirun -np 3 gmr pagerank; ii.) mpirun -np 3 sssp random; iii.)mpirun -np 3 trianglecount metis 4elt. ||
 
-#### Fedora
 
-| Package          | Component |
-| -----------------|-----------|
-| `boost-devel`    | core      |
-| `freeglut`       | ubigraph  |
-| `xmlrpc-c-devel` | ubigraph  |
-| `wmctrl`         | scripts   |
+|          集群运行      |                     |
+| -------------------------------------------------------------------------|-----------|
+| 命令  |./startgmr.sh cluster hosts [algorithm] [partition] [graphfile]              | |
+| 支持  |./startgmr.sh [pagerank 或 sssp 或 trianglecount] [random 或 metis] [small 或 4elt 或 mdual]       | |
+| 举例1 |./startgmr.sh cluster hosts                                             |  | 
+| 举例2 |./startgmr.sh cluster hosts pagerank                                    |  |
+| 举例3 |./startgmr.sh cluster hosts sssp random                                 |  |
+| 举例4 |./startgmr.sh cluster hosts sssp metis 4elt                             |  |
+| 举例5 |./startgmr.sh cluster hosts pagerank metis small                        |  |
+| 或者直接运行 |i.) mpirun -machinefile hosts -np 10 gmr    
+    ii.) mpirun -machinefile hosts -np 10 gmr pagerank random    
+    iii.)mpirun -machinefile hosts -np 10 gmr pagerank trianglecount metis 4elt    ||
 
 #### 1.)单机上运行
 调用启动脚本: ./startgmr.sh [algorithm] [partition] [graphfile]    

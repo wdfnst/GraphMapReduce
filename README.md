@@ -17,6 +17,23 @@
 ### 1. 编译gmr
 make clean && make    
 ### 2. 运行gmr
+|          单机运行      |          集群运行           |
+| -------------------------------------------------------------------------|-----------|
+| 命令  |./startgmr.sh [algorithm] [partition] [graphfile]                                       | core      |
+| 支持  |./startgmr.sh [pagerank 或 sssp 或 trianglecount] [random 或 metis] [small 或 4elt 或 mdual]       | core      |
+| 举例  |[`libxmlrpc-c3-dev`](apt:libxmlrpc-c3-dev)                               | ubigraph  |
+| [`freeglut3`](apt:freeglut3)                                             | ubigraph  |
+| [`wmctrl`](apt:wmctrl)                                                   | scripts   |
+
+#### Fedora
+
+| Package          | Component |
+| -----------------|-----------|
+| `boost-devel`    | core      |
+| `freeglut`       | ubigraph  |
+| `xmlrpc-c-devel` | ubigraph  |
+| `wmctrl`         | scripts   |
+
 #### 1.)单机上运行
 调用启动脚本: ./startgmr.sh [algorithm] [partition] [graphfile]    
 目前支持的算法、分图方法和图文件如下:    

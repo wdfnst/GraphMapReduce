@@ -19,7 +19,7 @@ make clean && make
 ### 2. 运行gmr
 |          单机运行      |                     |
 | -------------------------------------------------------------------------|-----------|
-| 命令  |./startgmr.sh [algorithm] [partition] [graphfile]                      | |
+| 命令  |./startgmr.sh [algorithm] [partition] [graphfile]                                                | |
 | 支持  |./startgmr.sh [pagerank 或 sssp 或 trianglecount] [random 或 metis] [small 或 4elt 或 mdual]       | |
 | 举例1 |./startgmr.sh                                             |  | 
 | 举例2 |./startgmr.sh pagerank                                    |  |
@@ -31,34 +31,15 @@ make clean && make
 
 |          集群运行      |                     |
 | -------------------------------------------------------------------------|-----------|
-| 命令  |./startgmr.sh cluster hosts [algorithm] [partition] [graphfile]              | |
+| 命令  |./startgmr.sh cluster hosts [algorithm] [partition] [graphfile]                                  | |
 | 支持  |./startgmr.sh [pagerank 或 sssp 或 trianglecount] [random 或 metis] [small 或 4elt 或 mdual]       | |
 | 举例1 |./startgmr.sh cluster hosts                                             |  | 
 | 举例2 |./startgmr.sh cluster hosts pagerank                                    |  |
 | 举例3 |./startgmr.sh cluster hosts sssp random                                 |  |
 | 举例4 |./startgmr.sh cluster hosts sssp metis 4elt                             |  |
 | 举例5 |./startgmr.sh cluster hosts pagerank metis small                        |  |
-| 或者直接运行 |i.) mpirun -machinefile hosts -np 10 gmr    
-    ii.) mpirun -machinefile hosts -np 10 gmr pagerank random    
-    iii.)mpirun -machinefile hosts -np 10 gmr pagerank trianglecount metis 4elt    ||
-
-#### 1.)单机上运行
-调用启动脚本: ./startgmr.sh [algorithm] [partition] [graphfile]    
-目前支持的算法、分图方法和图文件如下:    
-./startgmr.sh [pagerank 或 sssp 或 trianglecount] [random 或 metis] [small 或 4elt 或 mdual]    
-示例: ./startgmr.sh pagerank metis small 或 ./startgmr.sh sssp random 4elt    
-或者直接调用mpirun命令进行运行:    
-示例: i.) mpirun -np 3 gmr pagerank; ii.) mpirun -np 3 sssp random; iii.)mpirun -np 3 trianglecount metis 4elt.    
-#### 2.)集群上运行    
-调用脚本命令: ./startgmr.sh cluster hosts [algorithm] [partition] [graphfile]    
-i.)./startgmr.sh cluster hosts pagerank    
-ii.)./startgmr.sh cluster hosts sssp random    
-iiii.)./startgmr.sh cluster hosts trianglecount metis 4elt    
-或者直接调用mpirun命令进行运行:    
-mpirun -machinefile hosts -np process_num     
-示例:i.) mpirun -machinefile hosts -np 10 gmr    
-    ii.) mpirun -machinefile hosts -np 10 gmr pagerank random    
-    iii.)mpirun -machinefile hosts -np 10 gmr pagerank trianglecount metis 4elt    
+| 或者直接运行 |i.) mpirun -machinefile hosts -np 10 gmr; ii.) mpirun -machinefile hosts -np 10 gmr pagerank random; iii.)mpirun -machinefile hosts -np 10 gmr pagerank trianglecount metis 4elt    ||
+   
 > 注: i.)如果使用metis分图方式, 需要先使用metis分图工具将图文件分图, gpmetis工具位于目录pathtogmr/include/metis/,根据平台不同可能需要编译;ii.)使用random分图格式的图文件格式，文件每行记录from_vid to_vid.        
 
 ### 3. (non-mandatory)切图

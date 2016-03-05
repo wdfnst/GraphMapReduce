@@ -65,6 +65,9 @@ MPI进程按照其进程号依次等分的读取图文件的顶点，切分文�
 ```
 | 节点id | 节点权重 | 邻居1的id | 邻居1所在进程 | 邻居1所在边权重 | ... | 邻居N的id | 邻居N所在进程 | 邻居N所在边权重 |    
 |-----|-------|--------|-----------|-------------|---|-------|------------|------------|    
+
+
+
 |vertex_id | vertex_weight | neighbor1 | neighbor1.location | edge1.weight | ... | neighborN | neighborN.location | edgeN.weight |
 ```
 为方便测试，测试数据目录graph/目录中已经分好了三个不同规模的图small、4elt、mdual，定点数和边数从几十个到几百万个。

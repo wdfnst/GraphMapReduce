@@ -190,38 +190,39 @@ int main(int argc, char *argv[]) {
                 rdispls, MPI_CHAR, MPI_COMM_WORLD);
         recordTick("eexchangedata");
 
-        /*从其他子图传过来的子图,应该更新到本子图上,然后计算本子图信息*/
-        /*处理从别的节点传过来的数据(邻居节点), 并更新本地数据*/
+        /* 打印输出接收到的图顶点信息 */
         int rbsize = accumulate(recvcounts, recvcounts + size, 0);
         totalRecvBytes += rbsize;
-        if (DEBUG) printf("Process %d recv:", rank);
-        for ( i = 0 ; i < rbsize; ) {
-            int vid, eid, location, eloc, edgenum = 0;
-            float fewgt, fvwgt;
-            memcpy(&vid, rb + i, sizeof(int));
-            memcpy(&location, rb + (i += sizeof(int)), sizeof(int));
-            memcpy(&fvwgt, rb + (i += sizeof(int)), sizeof(float));
-            memcpy(&edgenum, rb + (i += sizeof(float)), sizeof(int));
-            if(DEBUG) printf("===>%d %d %f %d ", vid, location, fvwgt, edgenum);
-            i += sizeof(int);
-            /* 读取边的另外一个顶点 */
-            for (int j = 0; j < edgenum; j++, i += sizeof(int)) {
-                memcpy(&eid, rb + i, sizeof(int));
-                if(DEBUG) printf(" %d", eid + 1);
+        if (DEBUG) {
+            printf("Process %d recv:", rank);
+            for ( i = 0 ; i < rbsize; ) {
+                int vid, eid, location, eloc, edgenum = 0;
+                float fewgt, fvwgt;
+                memcpy(&vid, rb + i, sizeof(int));
+                memcpy(&location, rb + (i += sizeof(int)), sizeof(int));
+                memcpy(&fvwgt, rb + (i += sizeof(int)), sizeof(float));
+                memcpy(&edgenum, rb + (i += sizeof(float)), sizeof(int));
+                printf("===>%d %d %f %d ", vid, location, fvwgt, edgenum);
+                i += sizeof(int);
+                /* 读取边的另外一个顶点 */
+                for (int j = 0; j < edgenum; j++, i += sizeof(int)) {
+                    memcpy(&eid, rb + i, sizeof(int));
+                    printf(" %d", eid + 1);
+                }
+                /* 读取边的另外一个顶点所在的节点 */
+                for (int j = 0; j < edgenum; j++, i += sizeof(int)) {
+                    memcpy(&eloc, rb + i, sizeof(int));
+                    printf(" %d", eloc);
+                }
+                /* 读取边的权重 */
+                for (int j = 0; j < edgenum; j++, i += sizeof(float)) {
+                    memcpy(&fewgt, rb + i, sizeof(float));
+                    printf(" %f", fewgt);
+                }
+                printf(" %d / %d\n", i, rbsize);
             }
-            /* 读取边的另外一个顶点所在的节点 */
-            for (int j = 0; j < edgenum; j++, i += sizeof(int)) {
-                memcpy(&eloc, rb + i, sizeof(int));
-                if(DEBUG) printf(" %d", eloc);
-            }
-            /* 读取边的权重 */
-            for (int j = 0; j < edgenum; j++, i += sizeof(float)) {
-                memcpy(&fewgt, rb + i, sizeof(float));
-                if(DEBUG) printf(" %f", fewgt);
-            }
-            if(DEBUG) printf(" %d / %d\n", i, rbsize);
+            printf("\n");
         }
-        if(DEBUG) printf("\n");
 
         /*合并其他节点传递过来的顶点，计算并判断是否迭代结束*/
         recordTick("bcomputing");

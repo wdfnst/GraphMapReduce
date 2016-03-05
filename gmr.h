@@ -24,12 +24,14 @@ long totalMaxMem    = 0;
  * remainDeviation : 当前迭代步的残余误差
  * iterNum         : 当目前为止, 迭代的次数
  * MAX_ITERATION   : 系统允许的最大迭代次数
- * convergentVertex: 本子图已经收敛的顶点个数 */
+ * convergentVertex: 本子图已经收敛的顶点个数
+ * MAX_NEIGHBORSIZE: 图顶点允许的最大邻居数量 */
 float threshold         = 0.0001;
 float remainDeviation   = FLT_MAX;
 int iterNum             = 0;
 int MAX_ITERATION       = 10000;
 size_t convergentVertex = 0;
+const size_t MAX_NEIGHBORSIZE = 102400; 
 
 /* Map/Reduce编程模型中的键值对,用于作为Map输出和Reduce输入输出 */
 struct KV {
@@ -63,8 +65,8 @@ void recordTick(std::string tickname) {
 /* 用于从csr(Compressed Sparse Row)中生成Vertex顶点进行map/reduce */
 /* 用于业务逻辑计算，而非图的表示 */
 struct Vertex {
-    int id, loc, neighborSize, neighbors[512], neighborsloc[512];
-    float value, edgewgt[512];
+    int id, loc, neighborSize, neighbors[MAX_NEIGHBORSIZE], neighborsloc[MAX_NEIGHBORSIZE];
+    float value, edgewgt[MAX_NEIGHBORSIZE];
     bool operator==(int key) {
         return this->id == key;
     }
@@ -163,6 +165,10 @@ void computing(int rank, graph_t *graph, char *rb, int recvbuffersize, GMR *gmr)
         vertex.id = graph->ivsizes[i];
         vertex.value = graph->fvwgts[i];
         vertex.neighborSize = graph->xadj[i+1] - graph->xadj[i];
+        if (vertex.neighborSize > MAX_NEIGHBORSIZE) {
+            perror("Neighbor Size exceeds the maximum neighbor size.\n");
+            exit(0);
+        }
         int neighbor_sn = 0;
         for (int j=graph->xadj[i]; j<graph->xadj[i+1]; j++, neighbor_sn++) {
             vertex.neighbors[neighbor_sn] = graph->adjncy[j];
@@ -237,7 +243,7 @@ void computing(int rank, graph_t *graph, char *rb, int recvbuffersize, GMR *gmr)
 
 /* 打印计算的过程中的信息: 迭代次数, 各个步骤耗时 */
 void printTimeConsume(int rank) {
-    printf("Process %d 迭代次数:%d(%-6.2f\%%), 迭代残余误差:%ef, 本次迭代耗时:"
+    printf("Process %d 迭代次数:%d(%-6.2f%%), 迭代残余误差:%ef, 本次迭代耗时:"
             "%f=(%f[exdata] + %f[map] + %f" "[reduce] + %f[updategraph] + %f"
             "[computing])\n", rank, iterNum, convergentVertex * 1.0 / ntxs * 100,
             remainDeviation, timeRecorder["eiteration"] - timeRecorder["bexchangecounts"],

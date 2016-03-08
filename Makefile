@@ -1,8 +1,8 @@
 ###########################################
 #Makefile for simple programs
 ###########################################
-INC= 
-LIB= -lstdc++ 
+INC= -Iinclude/zoltan/
+LIB= -Llib/ -lzoltan -lstdc++ 
 CC= mpic++
 CC_FLAG=-Wall -std=c++11
 

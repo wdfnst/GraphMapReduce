@@ -21,6 +21,7 @@
 #include <errno.h> 
 #include "mpi.h"
 #include "error.h"
+#include "partition.h"
 #include "graph.h"
 #include "gmr.h"
 #include "algorithms.h"
@@ -35,10 +36,6 @@ int main(int argc, char *argv[]) {
     /* rank, size: MPI进程序号和进程数, sb: 发送缓存, rb: 接收缓存 */
     int rank, size, i;
     char *sb = nullptr, *rb = nullptr;
-    graph_t *graph;
-    char graphfilename[256];
-    char randomgraphfilepath[256];
-    char metisgraphfilepath[256];
     GMR *gmr = nullptr;
 
     /* 初始化MPI */
@@ -59,42 +56,119 @@ int main(int argc, char *argv[]) {
     int *sdispls            = (int*)malloc(size * sizeof(int));
     int *rdispls            = (int*)malloc(size * sizeof(int));
 
+    /**********************Variables for Zoltan***********************/
+    int numGlobalVertices, rc;
+    float ver;
+    struct Zoltan_Struct *zz;
+    int changes, numGidEntries, numLidEntries, numImport, numExport;
+    ZOLTAN_ID_PTR importGlobalGids, importLocalGids, exportGlobalGids, exportLocalGids;
+    int *importProcs, *importToPart, *exportProcs, *exportToPart;
+    int *parts = NULL;
+    FILE *fp;
+    GRAPH_DATA myGraph;
+    char *fname = "graph/rdsmall.graph";
+    /******************************************************************/
+
     /* 如果没有提供任何命令行参数, 则采用默认算法和分图 */
-    if (argc == 1) {
-        if(rank == 0)
-            printf("===>示例本地运行(采用rdsmall.graph图文件和随机分图算法)<===\n");
+    if (argc == 1 && rank == 0) {
+        printf("===>示例本地运行(采用rdsmall.graph图文件和随机分图算法)<===\n");
     }
     /* 参数提供的顺序: mpirun -np 3 gmr algorithm partition graphfile */
     /* 参数个数大于4时, 显示程序的调用格式 */
     if (argc > 4) {
         printf("Usage:1.)mpirun -np 3 ./gmr graphfile random\n"
-                     "2.)mpirun -machinefile hosts -np 3 ./gmr graphfile metis");
+               "2.)mpirun -machinefile hosts -np 3 ./gmr graphfile metis");
         exit(0);
     }
+    
     /* 根据调用命令行打开相应的图文件并采用提供的图切分算法进行切图, 
      * 否则使用默认方式: rdmdual.graph图和随机切分算法 */
     if (argc > 3) 
-        strcpy(graphfilename, argv[3]);
-    else
-        strcpy(graphfilename, "mdual");
-    sprintf(randomgraphfilepath, "graph/rd%s.graph", graphfilename);
-    sprintf(metisgraphfilepath, "graph/%s.graph.subgraph.%d", graphfilename, rank);
+        fname = argv[3];
+
+    rc = Zoltan_Initialize(argc, argv, &ver);
+    if (rc != ZOLTAN_OK){
+        printf("sorry...\n");
+        MPI_Finalize();
+        exit(0);
+    }
+    fp = fopen(fname, "r");
+    if (!fp){
+        if (rank == 0) fprintf(stderr,"ERROR: Can not open %s\n", fname);
+        MPI_Finalize();
+        exit(1);
+    }
+    fclose(fp);
+    numGlobalVertices = read_input_file(rank, size, fname, &myGraph);
+    /* 因为只有root(0)进程知道文件中记录的顶点数, 所以需要进行广播 */
+    MPI_Bcast( &numGlobalVertices, 1, MPI_INT, 0, MPI_COMM_WORLD );
     
     /* 根据调用命令提供的参数, 读取不同的图文件或子图文件 */
-    if (argc > 2) {
-        if (strcmp(argv[2], "random") == 0) {
-            graph = graph_Read(randomgraphfilepath, rank, size);
-        }
-        else if (strcmp(argv[2], "metis") == 0) {
-            graph = graph_Read(metisgraphfilepath, GK_GRAPH_FMT_METIS, 1, 1, 0);
-        } 
-        else {
-            printf("目前没有提供%s的分图方法.\n", argv[2]);
+    if (argc > 2 && strcmp(argv[2], "zoltan") == 0) {
+        zz = Zoltan_Create(MPI_COMM_WORLD);
+        /* General parameters */
+        Zoltan_Set_Param(zz, "DEBUG_LEVEL", "0");
+        Zoltan_Set_Param(zz, "LB_METHOD", "GRAPH");
+        Zoltan_Set_Param(zz, "LB_APPROACH", "PARTITION");
+        Zoltan_Set_Param(zz, "NUM_GID_ENTRIES", "1"); 
+        Zoltan_Set_Param(zz, "NUM_LID_ENTRIES", "1");
+        Zoltan_Set_Param(zz, "RETURN_LISTS", "ALL");
+
+        /* Graph parameters */
+        Zoltan_Set_Param(zz, "CHECK_GRAPH", "2"); 
+        /* 0-remove all, 1-remove none */
+        Zoltan_Set_Param(zz, "PHG_EDGE_SIZE_THRESHOLD", ".35");
+
+        /* Query functions - defined in simpleQueries.h */
+        Zoltan_Set_Num_Obj_Fn(zz, get_number_of_vertices, &myGraph);
+        Zoltan_Set_Obj_List_Fn(zz, get_vertex_list, &myGraph);
+        Zoltan_Set_Num_Edges_Multi_Fn(zz, get_num_edges_list, &myGraph);
+        Zoltan_Set_Edge_List_Multi_Fn(zz, get_edge_list, &myGraph);
+
+        rc = Zoltan_LB_Partition(zz, /* input (all remaining fields are output) */
+            &changes,        /* 1 if partitioning was changed, 0 otherwise */ 
+            &numGidEntries,  /* Number of integers used for a global ID */
+            &numLidEntries,  /* Number of integers used for a local ID */
+            &numImport,      /* Number of vertices to be sent to me */
+            &importGlobalGids,  /* Global IDs of vertices to be sent to me */
+            &importLocalGids,   /* Local IDs of vertices to be sent to me */
+            &importProcs,    /* Process rank for source of each incoming vertex */
+            &importToPart,   /* New partition for each incoming vertex */
+            &numExport,      /* Number of vertices I must send to other processes*/
+            &exportGlobalGids,  /* Global IDs of the vertices I must send */
+            &exportLocalGids,   /* Local IDs of the vertices I must send */
+            &exportProcs,    /* Process to which I send each of the vertices */
+            &exportToPart);  /* Partition to which each vertex will belong */
+        if (rc != ZOLTAN_OK){
+            printf("sorry...\n");
+            MPI_Finalize();
+            Zoltan_Destroy(&zz);
             exit(0);
         }
+//         parts = (int *)malloc(sizeof(int) * myGraph.numMyVertices);
+//         for (i=0; i < myGraph.numMyVertices; i++) parts[i] = rank;
+//         for (i=0; i < numExport; i++)
+//             parts[exportLocalGids[i]] = exportToPart[i];
+        /* zoltan的全局顶点id是从1开始的, 所以parts的大小要加1*/
+        parts = (int *)malloc(sizeof(int) * (numGlobalVertices + 1));
+        for (i = 0; i < numGlobalVertices + 1; i++)
+            parts[i] = -1;
+        for (i=0; i < myGraph.numMyVertices; i++)
+            parts[myGraph.vertexGID[i]] = rank;
+        for (i=0; i < numExport; i++)
+            parts[exportGlobalGids[i]] = exportToPart[i];
+        sendToBelongProc(rank, &myGraph, numGlobalVertices, parts, size);
+        if (parts) free(parts);
+        Zoltan_LB_Free_Part(&importGlobalGids, &importLocalGids, 
+                          &importProcs, &importToPart);
+        Zoltan_LB_Free_Part(&exportGlobalGids, &exportLocalGids, 
+                          &exportProcs, &exportToPart);
+        Zoltan_Destroy(&zz);
     }
-    else
-        graph = graph_Read("graph/rd4elt.graph", rank, size);
+    myGraph.fvwgts  = (float *)malloc(sizeof(float) * myGraph.numMyVertices); 
+    myGraph.fadjwgt = (float *)malloc(sizeof(float) * myGraph.numAllNbors); 
+    myGraph.fvwgts  = (float *)malloc(sizeof(float) * myGraph.numMyVertices); 
+    myGraph.status  = (int *)malloc(sizeof(int) * myGraph.numMyVertices); 
 
     /* 根据调用命令行实例化相应算法, 没用提供则模式使用TriangeCount算法 */
     /* 如果有提供算法名字, 则使用规定的算法 */
@@ -114,20 +188,20 @@ int main(int argc, char *argv[]) {
         gmr = new TriangleCount();
 
     /* 将子图的顶点个数赋给进程的全局变量 */
-    ntxs = graph->nvtxs;
-    if(INFO) printf("%d 节点和边数: %d %zd\n", rank, graph->nvtxs,
-            graph->xadj[graph->nvtxs]);
-    if (DEBUG) displayGraph(graph);
+    ntxs = myGraph.numMyVertices;
+    if(INFO) printf("%d 节点和边数: %d %zd\n", rank, myGraph.numMyVertices,
+            myGraph.nborIndex[myGraph.numMyVertices]);
+    //if (DEBUG) displayGraph(myGraph);
 
     /* 首先使用算法对图进行初始化:
      * PageRank: 初始化为空
      * SSSP: 如果调用的是SSSP算法, 需要将图进行初始化
      * startv.value = 0, otherv = ∞ */
-    gmr->initGraph(graph);
+    gmr->initGraph(&myGraph);
 
     while(true && iterNum < MAX_ITERATION && iterNum < gmr->algoIterNum){
         /* 从当前子图获取需要向其他节点发送的字节数 */
-        sendcounts = getSendBufferSize(graph, size, rank);
+        sendcounts = getSendBufferSize(&myGraph, size, rank);
         memset(allothersendcounts, 0, (size + 1) * size * sizeof(int));
         memset(sendcountswithconv, 0, (size + 1) * sizeof(int));
         memset(recvcounts, 0, size * sizeof(int));
@@ -145,7 +219,7 @@ int main(int argc, char *argv[]) {
          * ,接收数据后,首先判断所有进程的收敛进度是否接收,再拷贝接收缓存大小 */
         recordTick("bexchangecounts");
         /* 将收敛精度乘以10000, 实际上是以精确到小数点后两位以整数形式发送 */
-        int convergence = (int)(1.0 * convergentVertex / graph->nvtxs * 10000);
+        int convergence = (int)(1.0 * convergentVertex / myGraph.numMyVertices * 10000);
         memcpy(sendcountswithconv, sendcounts, size * sizeof(int));
         memcpy(sendcountswithconv + size, &convergence, sizeof(int));
         /* 交换需要发送字节数和收敛的进度 */
@@ -181,7 +255,7 @@ int main(int argc, char *argv[]) {
 
         /* 将要发送的数据从graph中拷贝到发送缓存sb中 */
         recordTick("bgetsendbuffer");
-        sb = getSendbuffer(graph, sendcounts, sdispls, size, rank);
+        sb = getSendbuffer(&myGraph, sendcounts, sdispls, size, rank);
         recordTick("egetsendbuffer");
 
         /* 调用MPIA_Alltoallv(), 交换数据 */
@@ -226,14 +300,14 @@ int main(int argc, char *argv[]) {
 
         /*合并其他节点传递过来的顶点，计算并判断是否迭代结束*/
         recordTick("bcomputing");
-        computing(rank, graph, rb, rbsize, gmr); 
+        computing(rank, &myGraph, rb, rbsize, gmr); 
         recordTick("ecomputing");
         free(sb); free(rb);
         MPI_Barrier(MPI_COMM_WORLD);
         recordTick("eiteration");
 
         /* 释放内存, 并打印迭代信息 */
-        free(sendcounts);
+        if (sendcounts) free(sendcounts);
         iterNum++;
         printTimeConsume(rank);
     }
@@ -243,8 +317,9 @@ int main(int argc, char *argv[]) {
     MPI_Finalize();
     /* 打印处理完之后的结果(图) */
     //displayGraph(graph);
-    gmr->printResult(graph);
-    graph_Free(&graph);
+    gmr->printResult(&myGraph);
+    graph_free(&myGraph);
+    //graph_Free(&graph);
     if (sdispls) free(sdispls); if(rdispls) free(rdispls);
     if (recvcounts) free(recvcounts);
     if(allothersendcounts) free(allothersendcounts);

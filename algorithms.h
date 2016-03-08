@@ -4,7 +4,7 @@
 class PageRank : public GMR {
 public:
     /* 根据PageRank算法特点和需要,对图进行初始化 */
-    void initGraph(graph_t *graph) {
+    void initGraph(GRAPH_DATA *graph) {
         printf("==========>PageRank<==========\n");
     }
 
@@ -33,7 +33,7 @@ public:
     }
 
     /* 输出算法的执行结果 */
-    virtual void printResult(graph_t *graph) { }
+    virtual void printResult(GRAPH_DATA *graph) { }
 };
 
 /****************************************************
@@ -43,10 +43,10 @@ class SSSP : public GMR {
 public:
     SSSP(ssize_t startv) : startv(startv) { }
     /* 根据SSSP算法特点和需要,对图进行初始化 */
-    void initGraph(graph_t *graph) {
+    void initGraph(GRAPH_DATA *graph) {
         printf("==========>SSSP<==========\n");
-        for (int i=0; i<graph->nvtxs; i++) {
-            if (graph->ivsizes[i] == startv)  {
+        for (int i=0; i<graph->numMyVertices; i++) {
+            if (graph->vertexGID[i] == startv)  {
                 graph->fvwgts[i] = 0;
             }
             else
@@ -88,7 +88,7 @@ public:
     ssize_t startv;
 
     /* 输出算法的执行结果 */
-    virtual void printResult(graph_t *graph) { }
+    virtual void printResult(GRAPH_DATA *graph) { }
 };
 
 /****************************************************
@@ -96,7 +96,7 @@ public:
  ***************************************************/
 class TriangleCount : public GMR {
     /* 根据PageRank算法特点和需要,对图进行初始化 */
-    void initGraph(graph_t *graph) {
+    void initGraph(GRAPH_DATA *graph) {
         printf("==========>TriangleCount<==========\n");
         /* TriangleCount算法中, 只需要迭代一次即可结束 */
         algoIterNum = 1;
@@ -104,7 +104,7 @@ class TriangleCount : public GMR {
          * 顶点1的值累加上去 */
         upmode = accu;
         /* 将所有顶点的值都赋为0, 最后存储以此顶点出发的三角形个数 */
-        for (int i=0; i<graph->nvtxs; i++)
+        for (int i=0; i < graph->numMyVertices; i++)
             graph->fvwgts[i] = 0;
     }
 
@@ -122,7 +122,12 @@ class TriangleCount : public GMR {
             else
                 tempKV.key = v.neighbors[i], tempKV.skey = v.id;
             kvs.push_back(tempKV);
-            if(DEBUG) printf("Pair.key(%d %d)->", tempKV.key, tempKV.skey);
+            if(DEBUG) {
+                printf("%dth map result: Pair.key(%d %d)->(", iterNum, tempKV.key, tempKV.skey);
+                for (int j = 0; j < v.neighborSize; j++)
+                    printf("%d ", v.neighbors[j]);
+                printf(")\n");
+            }
         }
     }
 
@@ -166,9 +171,9 @@ class TriangleCount : public GMR {
     }
 
     /* 输出算法的执行结果 */
-    virtual void printResult(graph_t *graph) {
+    virtual void printResult(GRAPH_DATA *graph) {
         float triangleSum = 0;
-        for (int i=0; i<graph->nvtxs; i++)
+        for (int i=0; i<graph->numMyVertices; i++)
             triangleSum += graph->fvwgts[i];
         printf("共计三角形个数:%f\n", triangleSum);
     }
@@ -212,7 +217,7 @@ public:
     Kmeans(size_t k) { this->k = k; }
 
     /* 根据Kmeans算法特点和需要,对图进行初始化 */
-    void initGraph(graph_t *graph) {
+    void initGraph(GRAPH_DATA *graph) {
         printf("==========>K-means<==========\n");
     }
 
@@ -241,5 +246,5 @@ public:
     }
 
     /* 输出算法的执行结果 */
-    virtual void printResult(graph_t *graph) { }
+    virtual void printResult(GRAPH_DATA *graph) { }
 };

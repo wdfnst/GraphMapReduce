@@ -751,6 +751,43 @@ int *getSendBufferSize(const graph_t *graph, const int psize, const int rank) {
     return sendcounts;
 }
 
+/* 获取发往其他各运算节点的字节数 */
+int *getSendBufferSize(const GRAPH_DATA *graph, const int psize, const int rank) {
+    int *sendcounts = (int*)malloc(psize * sizeof(int));
+    memset(sendcounts, 0, psize * sizeof(int));
+    /* 先遍历一次需要发送的数据，确定需要和每个节点交换的数据 */
+    for (int i = 0; i < graph->numMyVertices; i++) {
+        /* 如果当前顶点vertex为iactive, 则不用发送 */
+        /* TODO: Bugfix - 不将收敛的节点发送, 可能导致不收敛 */
+        //if (graph->status[i] == inactive) continue;
+        /* 记录当前节点向外发送时，所需要的缓存大小 */
+        int currentVertexSize = 0;
+        // id, loc, weight of vertex
+        currentVertexSize += sizeof(int);
+        currentVertexSize += sizeof(int);
+        currentVertexSize += sizeof(float);
+        // quantity, terminal, location and weight of edges
+        int neighborNum = graph->nborIndex[i+1] - graph->nborIndex[i];
+        currentVertexSize += sizeof(int);
+        currentVertexSize += neighborNum * sizeof(int);
+        currentVertexSize += neighborNum * sizeof(int);
+        currentVertexSize += neighborNum * sizeof(float);
+
+        /* visited 用于记录当前遍历的顶点是否已经发送给节点adjloc[j] */
+        short visited[MAX_PROCESSOR];
+        memset(visited, 0, MAX_PROCESSOR * sizeof(short));
+        for (int j=graph->nborIndex[i]; j<graph->nborIndex[i+1]; j++) {
+            /* 如果当前顶点的终止顶点为在当前节点, 则不必发送 */
+            if (graph->nborProc[j] == rank) continue;
+            /* 如果当前顶点已经在之前发过给此节点, 则也不用发送 */
+            if (visited[graph->nborProc[j]] == 1) continue;
+            visited[graph->nborProc[j]] = 1;
+            sendcounts[graph->nborProc[j]] += currentVertexSize;
+        }
+    }
+    return sendcounts;
+}
+
 /* 将要发送的数据从graph中拷贝到发送缓存sb中 */
 char *getSendbuffer(graph_t *graph, int *sendcounts, int *sdispls, 
         int psize, int rank) {
@@ -812,6 +849,70 @@ char *getSendbuffer(graph_t *graph, int *sendcounts, int *sdispls,
             memcpy(sb + sdispls[graph->adjloc[j]] + offsets[graph->adjloc[j]],
                     vertex, currentVertexSize);
             offsets[graph->adjloc[j]] += currentVertexSize;
+        }
+        if (vertex) free(vertex);
+    }
+    if (offsets) free(offsets);
+    return sb;
+}
+
+/* 将要发送的数据从graph中拷贝到发送缓存sb中 */
+char *getSendbuffer(GRAPH_DATA *graph, int *sendcounts, int *sdispls, 
+        int psize, int rank) {
+    /* 申请发送缓存 */
+    char *sb = (char*)malloc(std::accumulate(sendcounts, sendcounts + psize, 0));
+    if ( !sb ) {
+        perror( "can't allocate send buffer" );
+        MPI_Abort(MPI_COMM_WORLD,EXIT_FAILURE); 
+    }
+
+    /* 将要发送顶点拷贝到对应的缓存: 内存拷贝(是否有方法减少拷贝?) */
+    int *offsets = (int*)malloc(psize * sizeof(int));
+    memset(offsets, 0, psize * sizeof(int));
+    for (int i = 0; i < graph->numMyVertices; i++) {
+        /* 如果当前顶点vertex为iactive, 则不用发送 */
+        /* TODO: Bugfix - 不将收敛的节点发送, 可能导致不收敛 */
+        //if (graph->status[i] == inactive) continue;
+        /* record the size of current vertex */
+        int currentVertexSize = 0;
+        // accumulate the size of id, loc, weight of vertex
+        currentVertexSize += sizeof(int);
+        currentVertexSize += sizeof(int);
+        currentVertexSize += sizeof(float);
+        // accumulate the quantity , terminal, loc and weight of edges
+        int neighborNum = graph->nborIndex[i+1] - graph->nborIndex[i];
+        currentVertexSize += sizeof(int);
+        currentVertexSize += neighborNum * sizeof(int);
+        currentVertexSize += neighborNum * sizeof(int);
+        currentVertexSize += neighborNum * sizeof(float);
+
+        /* vertex memory image: (id | location | weight | edgenum 
+         * | edges1-n | locationOfedges1-n | weightOfedges1-n) */
+        char *vertex = (char*)malloc(currentVertexSize * sizeof(char));;
+        memset(vertex, 0, currentVertexSize * sizeof(char));
+        memcpy(vertex, &(graph->vertexGID[i]), sizeof(int));
+        memcpy(vertex + sizeof(int), &rank, sizeof(int));
+        memcpy(vertex + 2 * sizeof(int), &(graph->fvwgts[i]), sizeof(float));
+        memcpy(vertex + 2 * sizeof(int) + sizeof(float), &neighborNum, sizeof(int));
+        memcpy(vertex + 3 * sizeof(int) + sizeof(float), &(graph->nborGID[graph->nborIndex[i]]),
+                neighborNum * sizeof(int));
+        memcpy(vertex + (3 + neighborNum) * sizeof(int) + sizeof(float), 
+                &(graph->nborProc[graph->nborIndex[i]]), neighborNum * sizeof(int));
+
+        /* 将顶点的边的权重weight拷贝进发送缓存 */
+        memcpy(vertex + (3 + 2 * neighborNum) * sizeof(int) + sizeof(float), 
+                &(graph->fadjwgt[graph->nborIndex[i]]), neighborNum * sizeof(float));
+
+        /* visited 用于记录当前遍历的顶点是否已经发送给节点adjloc[j]*/
+        short visited[MAX_PROCESSOR];
+        memset(visited, 0, MAX_PROCESSOR * sizeof(short));
+        for (int j = graph->nborIndex[i]; j< graph->nborIndex[i+1]; j++) {
+            if (graph->nborProc[j] == rank) continue;
+            if (visited[graph->nborProc[j]] == 1) continue;
+            visited[graph->nborProc[j]] = 1;
+            memcpy(sb + sdispls[graph->nborProc[j]] + offsets[graph->nborProc[j]],
+                    vertex, currentVertexSize);
+            offsets[graph->nborProc[j]] += currentVertexSize;
         }
         if (vertex) free(vertex);
     }

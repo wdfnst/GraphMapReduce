@@ -209,11 +209,13 @@ int main(int argc, char *argv[]) {
         memset(rdispls, 0, size * sizeof(int));
 
         /* 打印出节点发送缓冲区大小 */
-        if(INFO) printf("Process %d send size:", rank);
-        for (i = 0; i < size; i++) {
-            if(INFO) printf(" %d\t", sendcounts[i]);
+        if(INFO) {
+            printf("Process %d send size:", rank);
+            for (i = 0; i < size; i++) {
+                printf(" %d\t", sendcounts[i]);
+            }
+            printf("\n");
         }
-        if(INFO) printf("\n");
         
         /* 计算迭代进度(收敛顶点数/总的顶点数 * 10,000), 并将其加在缓存大小后面
          * ,接收数据后,首先判断所有进程的收敛进度是否接收,再拷贝接收缓存大小 */
@@ -235,11 +237,13 @@ int main(int argc, char *argv[]) {
         recordTick("eexchangecounts");
 
         /* 打印出节点接收到的接收缓冲区大小 */
-        if(INFO) printf("Prcess %d recv size:", rank);
-        for (i = 0; i < size; i++) {
-            if(INFO) printf(" %d\t", recvcounts[i]);
+        if (INFO) {
+            printf("Prcess %d recv size:", rank);
+            for (i = 0; i < size; i++) {
+                printf(" %d\t", recvcounts[i]);
+            }
+            printf("\n");
         }
-        if(INFO) printf("\n");
 
         /* 申请发送和接收数据的空间 */
         rb = (char*)malloc(accumulate(recvcounts, recvcounts + size, 0));

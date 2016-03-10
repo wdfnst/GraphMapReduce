@@ -9,7 +9,9 @@ public:
     }
 
     /* Map/Reduce编程模型中的Map函数 */
-    void map(Vertex &v, std::list<KV> &kvs) {
+    void map(Vertex &v, std::vector<KV> &kvs) {
+        if (v.neighborSize == 0)
+            return;
         float value = v.value / v.neighborSize;
         for (int i = 0; i < v.neighborSize; i++) {
             kvs.push_back({v.neighbors[i], value});
@@ -54,7 +56,7 @@ public:
         }
     }
 
-    void map(Vertex &v, std::list<KV> &kvs) {
+    void map(Vertex &v, std::vector<KV> &kvs) {
         /* 当第一次迭代的时候对图进行出发顶点和其他个顶点的值进行初始化 */
         kvs.push_back({v.id, v.value});
         if(DEBUG) printf("%dth map result: %d %f\n", iterNum,
@@ -109,7 +111,7 @@ class TriangleCount : public GMR {
     }
 
     /* Map/Reduce编程模型中的Map函数 */
-    void map(Vertex &v, std::list<KV> &kvs) {
+    void map(Vertex &v, std::vector<KV> &kvs) {
         KV tempKV;
         for (int i = 0; i < v.neighborSize; i++) {
             tempKV.svalue.push_back(v.neighbors[i]);
@@ -217,7 +219,7 @@ public:
     }
 
     /* Map/Reduce编程模型中的Map函数 */
-    void map(Vertex &v, std::list<KV> &kvs) {
+    void map(Vertex &v, std::vector<KV> &kvs) {
         float value = v.value / v.neighborSize;
         for (int i = 0; i < v.neighborSize; i++) {
             kvs.push_back({v.neighbors[i], value});

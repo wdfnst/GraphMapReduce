@@ -1,6 +1,0 @@
-/Users/chenhuan/codes/openmpi/workspace/GraphMapReduce/GraphMapReduce/include/metis/GKlib/build/Darwin-x86_64/test/CMakeFiles/strings.dir
-/Users/chenhuan/codes/openmpi/workspace/GraphMapReduce/GraphMapReduce/include/metis/GKlib/build/Darwin-x86_64/test/CMakeFiles/fis.dir
-/Users/chenhuan/codes/openmpi/workspace/GraphMapReduce/GraphMapReduce/include/metis/GKlib/build/Darwin-x86_64/test/CMakeFiles/rw.dir
-/Users/chenhuan/codes/openmpi/workspace/GraphMapReduce/GraphMapReduce/include/metis/GKlib/build/Darwin-x86_64/test/CMakeFiles/gkgraph.dir
-/Users/chenhuan/codes/openmpi/workspace/GraphMapReduce/GraphMapReduce/include/metis/GKlib/build/Darwin-x86_64/test/CMakeFiles/gksort.dir
-/Users/chenhuan/codes/openmpi/workspace/GraphMapReduce/GraphMapReduce/include/metis/GKlib/build/Darwin-x86_64/CMakeFiles/GKlib.dir

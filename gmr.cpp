@@ -36,9 +36,6 @@ int main(int argc, char *argv[]) {
     int rank, size, i;
     char *sb = nullptr, *rb = nullptr;
     graph_t *graph;
-    char graphfilename[256];
-    char randomgraphfilepath[256];
-    char metisgraphfilepath[256];
     GMR *gmr = nullptr;
 
     /* 初始化MPI */
@@ -60,41 +57,21 @@ int main(int argc, char *argv[]) {
     int *rdispls            = (int*)malloc(size * sizeof(int));
 
     /* 如果没有提供任何命令行参数, 则采用默认算法和分图 */
-    if (argc == 1) {
-        if(rank == 0)
+    if (argc == 1 && rank == 0) {
             printf("===>示例本地运行(采用rdsmall.graph图文件和随机分图算法)<===\n");
     }
     /* 参数提供的顺序: mpirun -np 3 gmr algorithm partition graphfile */
     /* 参数个数大于4时, 显示程序的调用格式 */
-    if (argc > 4) {
+    if (argc > 3) {
         printf("Usage:1.)mpirun -np 3 ./gmr graphfile random\n"
-                     "2.)mpirun -machinefile hosts -np 3 ./gmr graphfile metis");
+                 "2.)mpirun -machinefile hosts -np 3 ./gmr graphfile metis\n");
         exit(0);
     }
-    /* 根据调用命令行打开相应的图文件并采用提供的图切分算法进行切图, 
-     * 否则使用默认方式: rdmdual.graph图和随机切分算法 */
-    if (argc > 3) 
-        strcpy(graphfilename, argv[3]);
-    else
-        strcpy(graphfilename, "mdual");
-    sprintf(randomgraphfilepath, "graph/rd%s.graph", graphfilename);
-    sprintf(metisgraphfilepath, "graph/%s.graph.subgraph.%d", graphfilename, rank);
     
-    /* 根据调用命令提供的参数, 读取不同的图文件或子图文件 */
-    if (argc > 2) {
-        if (strcmp(argv[2], "random") == 0) {
-            graph = graph_Read(randomgraphfilepath, rank, size);
-        }
-        else if (strcmp(argv[2], "metis") == 0) {
-            graph = graph_Read(metisgraphfilepath, GK_GRAPH_FMT_METIS, 1, 1, 0);
-        } 
-        else {
-            printf("目前没有提供%s的分图方法.\n", argv[2]);
-            exit(0);
-        }
-    }
+    if (argc > 2)
+        graph = graph_Read(argv[2], rank, size);
     else
-        graph = graph_Read("graph/rd4elt.graph", rank, size);
+        graph = graph_Read("graph/4elt.graph", rank, size);
 
     /* 根据调用命令行实例化相应算法, 没用提供则模式使用TriangeCount算法 */
     /* 如果有提供算法名字, 则使用规定的算法 */
@@ -125,21 +102,34 @@ int main(int argc, char *argv[]) {
      * startv.value = 0, otherv = ∞ */
     gmr->initGraph(graph);
 
+    /* 获取发送数据的大小, 并将其放到发送缓冲区 */
+    /* 从当前子图获取需要向其他节点发送的字节数 */
+    sendcounts = getSendBufferSize(graph, size, rank);
+    memset(sdispls, 0, size * sizeof(int));
+    /* 计算发送和接收缓冲区偏移 */
+    for (i = 1; i != size; i++) {
+        sdispls[i] += (sdispls[i - 1] + sendcounts[i - 1]);
+    }
+    /* 将要发送的数据从graph中拷贝到发送缓存sb中 */
+    recordTick("bgetsendbuffer");
+    sb = getSendbuffer(graph, sendcounts, sdispls, size, rank);
+    recordTick("egetsendbuffer");
+
     while(true && iterNum < MAX_ITERATION && iterNum < gmr->algoIterNum){
-        /* 从当前子图获取需要向其他节点发送的字节数 */
-        sendcounts = getSendBufferSize(graph, size, rank);
         memset(allothersendcounts, 0, (size + 1) * size * sizeof(int));
         memset(sendcountswithconv, 0, (size + 1) * sizeof(int));
         memset(recvcounts, 0, size * sizeof(int));
-        memset(sdispls, 0, size * sizeof(int));
+        //memset(sdispls, 0, size * sizeof(int));
         memset(rdispls, 0, size * sizeof(int));
 
         /* 打印出节点发送缓冲区大小 */
-        if(INFO) printf("Process %d send size:", rank);
-        for (i = 0; i < size; i++) {
-            if(INFO) printf(" %d\t", sendcounts[i]);
+        if(INFO) {
+            printf("Process %d send size:", rank);
+            for (i = 0; i < size; i++) {
+                printf(" %d\t", sendcounts[i]);
+            }
+            printf("\n");
         }
-        if(INFO) printf("\n");
         
         /* 计算迭代进度(收敛顶点数/总的顶点数 * 10,000), 并将其加在缓存大小后面
          * ,接收数据后,首先判断所有进程的收敛进度是否接收,再拷贝接收缓存大小 */
@@ -161,11 +151,13 @@ int main(int argc, char *argv[]) {
         recordTick("eexchangecounts");
 
         /* 打印出节点接收到的接收缓冲区大小 */
-        if(INFO) printf("Prcess %d recv size:", rank);
-        for (i = 0; i < size; i++) {
-            if(INFO) printf(" %d\t", recvcounts[i]);
+        if(INFO) {
+            printf("Prcess %d recv size:", rank);
+            for (i = 0; i < size; i++) {
+                printf(" %d\t", recvcounts[i]);
+            }
+            printf("\n");
         }
-        if(INFO) printf("\n");
 
         /* 申请发送和接收数据的空间 */
         rb = (char*)malloc(accumulate(recvcounts, recvcounts + size, 0));
@@ -175,14 +167,14 @@ int main(int argc, char *argv[]) {
         }
         /* 计算发送和接收缓冲区偏移 */
         for (i = 1; i != size; i++) {
-            sdispls[i] += (sdispls[i - 1] + sendcounts[i - 1]);
+            //sdispls[i] += (sdispls[i - 1] + sendcounts[i - 1]);
             rdispls[i] += (rdispls[i - 1] + recvcounts[i - 1]);
         }
 
         /* 将要发送的数据从graph中拷贝到发送缓存sb中 */
-        recordTick("bgetsendbuffer");
-        sb = getSendbuffer(graph, sendcounts, sdispls, size, rank);
-        recordTick("egetsendbuffer");
+        //recordTick("bgetsendbuffer");
+        //sb = getSendbuffer(graph, sendcounts, sdispls, size, rank);
+        //recordTick("egetsendbuffer");
 
         /* 调用MPIA_Alltoallv(), 交换数据 */
         recordTick("bexchangedata");
@@ -193,47 +185,15 @@ int main(int argc, char *argv[]) {
         /* 打印输出接收到的图顶点信息 */
         int rbsize = accumulate(recvcounts, recvcounts + size, 0);
         totalRecvBytes += rbsize;
-        if (DEBUG) {
-            printf("Process %d recv:", rank);
-            for ( i = 0 ; i < rbsize; ) {
-                int vid, eid, location, eloc, edgenum = 0;
-                float fewgt, fvwgt;
-                memcpy(&vid, rb + i, sizeof(int));
-                memcpy(&location, rb + (i += sizeof(int)), sizeof(int));
-                memcpy(&fvwgt, rb + (i += sizeof(int)), sizeof(float));
-                memcpy(&edgenum, rb + (i += sizeof(float)), sizeof(int));
-                printf("===>%d %d %f %d ", vid, location, fvwgt, edgenum);
-                i += sizeof(int);
-                /* 读取边的另外一个顶点 */
-                for (int j = 0; j < edgenum; j++, i += sizeof(int)) {
-                    memcpy(&eid, rb + i, sizeof(int));
-                    printf(" %d", eid + 1);
-                }
-                /* 读取边的另外一个顶点所在的节点 */
-                for (int j = 0; j < edgenum; j++, i += sizeof(int)) {
-                    memcpy(&eloc, rb + i, sizeof(int));
-                    printf(" %d", eloc);
-                }
-                /* 读取边的权重 */
-                for (int j = 0; j < edgenum; j++, i += sizeof(float)) {
-                    memcpy(&fewgt, rb + i, sizeof(float));
-                    printf(" %f", fewgt);
-                }
-                printf(" %d / %d\n", i, rbsize);
-            }
-            printf("\n");
-        }
 
         /*合并其他节点传递过来的顶点，计算并判断是否迭代结束*/
         recordTick("bcomputing");
         computing(rank, graph, rb, rbsize, gmr); 
         recordTick("ecomputing");
-        free(sb); free(rb);
+        free(rb);
         MPI_Barrier(MPI_COMM_WORLD);
         recordTick("eiteration");
 
-        /* 释放内存, 并打印迭代信息 */
-        free(sendcounts);
         iterNum++;
         printTimeConsume(rank);
     }
@@ -245,6 +205,8 @@ int main(int argc, char *argv[]) {
     //displayGraph(graph);
     gmr->printResult(graph);
     graph_Free(&graph);
+    free(sendcounts);
+    free(sb); 
     if (sdispls) free(sdispls); if(rdispls) free(rdispls);
     if (recvcounts) free(recvcounts);
     if(allothersendcounts) free(allothersendcounts);

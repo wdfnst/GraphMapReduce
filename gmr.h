@@ -5,7 +5,7 @@
 /**************************************************************************/
 
 /* 判断是否在控制台打印调试信息 */
-#define INFO   false
+#define INFO   false 
 #define DEBUG  false 
 
 /* 子图更新的方式:
@@ -44,7 +44,7 @@ struct KV {
 };
 
 /* 用于对KV的key进行排序的lambda函数 */
-auto KVComp = [](KV &kv1, KV &kv2) -> bool {
+auto KVComp = [](KV kv1, KV kv2) -> bool {
     if (kv1.key < kv2.key)
         return true;
     else if (kv1.key == kv2.key) {
@@ -83,7 +83,7 @@ public:
     /* 根据不同的算法, 对图进行初始化 */
     virtual void initGraph(graph_t *graph) = 0;
     /* Map/Reduce编程模型中的Map函数 */
-    virtual void map(Vertex &v, std::list<KV> &kvs) = 0;
+    virtual void map(Vertex &v, std::vector<KV> &kvs) = 0;
 
     /* 用于将Map/Reduce计算过程中产生的KV list进行排序 */
     /* TODO: 采用OpenMP进行排序优化 */
@@ -157,15 +157,17 @@ void updateGraph(graph_t *graph, std::list<KV> &reduceResult, UpdateMode upmode)
 
 /*将单个节点内的顶点映射为Key/value, 对Key排序后，再进行规约*/
 void computing(int rank, graph_t *graph, char *rb, int recvbuffersize, GMR *gmr) {
-    std::list<KV> kvs;
+    std::vector<KV> kvs;
     Vertex vertex;
 
     recordTick("bgraphmap");
     for (int i=0; i<graph->nvtxs; i++) {
+        //if (graph->status[i] == inactive) continue;
         vertex.id = graph->ivsizes[i];
         vertex.value = graph->fvwgts[i];
         vertex.neighborSize = graph->xadj[i+1] - graph->xadj[i];
         if (vertex.neighborSize > MAX_NEIGHBORSIZE) {
+            printf("Neighbor Size exceeds the maximum neighbor size.\n");
             perror("Neighbor Size exceeds the maximum neighbor size.\n");
             exit(0);
         }
@@ -175,7 +177,7 @@ void computing(int rank, graph_t *graph, char *rb, int recvbuffersize, GMR *gmr)
             /* 将边的权重从图中顶点拷贝到vertex.edgewgt[k++]中 */
             vertex.edgewgt[neighbor_sn] = graph->fadjwgt[j];
         }
-        gmr->map(vertex, kvs);
+        /*if (vertex.neighborSize > 0) */gmr->map(vertex, kvs);
     }
     recordTick("egraphmap");
 
@@ -211,13 +213,14 @@ void computing(int rank, graph_t *graph, char *rb, int recvbuffersize, GMR *gmr)
             if(DEBUG) printf(" %f", fewgt);
         }
         if(DEBUG) printf("\n");
-        gmr->map(vertex, kvs);
+        /*if (vertex.neighborSize > 0)*/gmr->map(vertex, kvs);
     }
     recordTick("erecvbuffermap");
 
     /* 对map产生的key/value list进行排序 */
     recordTick("bsort");
-    kvs.sort(KVComp);
+    //kvs.sort(KVComp);
+    sort(kvs.begin(), kvs.end(), KVComp);
     recordTick("esort");
 
     recordTick("breduce");
@@ -243,13 +246,28 @@ void computing(int rank, graph_t *graph, char *rb, int recvbuffersize, GMR *gmr)
 
 /* 打印计算的过程中的信息: 迭代次数, 各个步骤耗时 */
 void printTimeConsume(int rank) {
-    printf("Process %d 迭代次数:%d(%-6.2f%%), 迭代残余误差:%ef, 本次迭代耗时:"
-            "%f=(%f[exdata] + %f[map] + %f" "[reduce] + %f[updategraph] + %f"
-            "[computing])\n", rank, iterNum, convergentVertex * 1.0 / ntxs * 100,
+    printf("P-%d, %dth(%-6.2f%%), D:%-8.5f, Time:%f=(%f[excount] + %f[exdata]"
+            "+ %f[comp](%f[map] + %f[sort] + %f[reduce] + %f[update])"
+            " + %f[barr])\n", rank, iterNum, convergentVertex * 1.0 / ntxs * 100,
             remainDeviation, timeRecorder["eiteration"] - timeRecorder["bexchangecounts"],
+            timeRecorder["eexchangecounts"] - timeRecorder["bexchangecounts"],
             timeRecorder["eexchangedata"] - timeRecorder["bexchangedata"],
+            timeRecorder["ecomputing"] - timeRecorder["bcomputing"],
             timeRecorder["erecvbuffermap"] - timeRecorder["bgraphmap"],
+            timeRecorder["esort"] - timeRecorder["bsort"], 
             timeRecorder["ereduce"] - timeRecorder["breduce"], 
             timeRecorder["eupdategraph"] - timeRecorder["bupdategraph"], 
-            timeRecorder["ecomputing"] - timeRecorder["bcomputing"]);
+            timeRecorder["eiteration"] - timeRecorder["ecomputing"]);
+}
+
+int checkfileexist(char *fname) {
+    std::ifstream fin;
+    fin.open(fname);
+    if (!fin) {
+        printf("文件不存在.\n");
+        return 0;
+    }
+    else {
+        return 1;
+    }
 }

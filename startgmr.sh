@@ -11,7 +11,7 @@ partition="random"
 
 if [ $# -lt 1 ]; then
     echo "执行默认测试算法和示例数据"
-    mpirun -np 3 ./gmr
+    mpirun -np 3 ./igmr
     exit 0
 fi
 
@@ -36,7 +36,7 @@ if [ "$1" = "cluster" ]; then
         done
         command="$command"" -np $hosts_num"
     fi
-    command=$command" ./gmr "
+    command=$command" ./igmr "
     if [ $# -gt 2 ]; then
         algorithm=$3
         command="$command"" $algorithm"
@@ -51,7 +51,7 @@ if [ "$1" = "cluster" ]; then
     fi
 else
     # ... ./gmr algorithm partition graphfile
-    command=$command" -np 3 gmr "
+    command=$command" -np 3 igmr "
     if [ $# -gt 0 ]; then
         algorithm=$1
         command="$command"" $algorithm"

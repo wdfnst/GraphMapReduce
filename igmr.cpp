@@ -21,10 +21,10 @@
 #include <errno.h> 
 #include "mpi.h"
 #include "error.h"
-#include "graph.h"
+// #include "graph.h"
+#include "partition.h"
 #include "gmr.h"
 #include "algorithms.h"
-#include "partition.h"
 
 using namespace std;
 
@@ -34,10 +34,11 @@ using namespace std;
  */
 int main(int argc, char *argv[]) {
     /* rank, size: MPI进程序号和进程数, sb: 发送缓存, rb: 接收缓存 */
-    int rank, size, i;
+    int rank, size, i, rbsize = 0;
     char *sb = nullptr, *rb = nullptr;
-    graph_t *graph;
+    graph_t graph;
     GMR *gmr = nullptr;
+    std::list<KV> reduceResult;
 
     /* 初始化MPI */
     MPI_Init(&argc,&argv);
@@ -70,10 +71,14 @@ int main(int argc, char *argv[]) {
     }
     
     if (argc > 2)
-        graph = graph_Read(argv[2], rank, size);
+//         graph = graph_Read(argv[2], rank, size);
+        read_input_file(rank, size, argv[2], &graph);
     else
-        graph = graph_Read("graph/4elt.graph", rank, size);
+//         graph = graph_Read("graph/4elt.graph", rank, size);
+        read_input_file(rank, size, "graph/small.graph", &graph);
 
+    printf("Process %d: G(|V|, |E|) = (%d, %d)\n", rank, graph.nvtxs,
+            graph.nedges);
     /* 根据调用命令行实例化相应算法, 没用提供则模式使用TriangeCount算法 */
     /* 如果有提供算法名字, 则使用规定的算法 */
     if (argc > 1) {
@@ -92,35 +97,32 @@ int main(int argc, char *argv[]) {
         gmr = new TriangleCount();
 
     /* 将子图的顶点个数赋给进程的全局变量 */
-    ntxs = graph->nvtxs;
-    if(INFO) printf("%d 节点和边数: %d %zd\n", rank, graph->nvtxs,
-            graph->xadj[graph->nvtxs]);
-    if (DEBUG) displayGraph(graph);
+    ntxs = graph.nvtxs;
+    if(INFO) printf("%d 节点和边数: %d %zd\n", rank, graph.nvtxs,
+            graph.xadj[graph.nvtxs]);
+    if (DEBUG) displayGraph(&graph);
 
     /* 首先使用算法对图进行初始化:
      * PageRank: 初始化为空
      * SSSP: 如果调用的是SSSP算法, 需要将图进行初始化
      * startv.value = 0, otherv = ∞ */
-    gmr->initGraph(graph);
-
-    /* 获取发送数据的大小, 并将其放到发送缓冲区 */
-    /* 从当前子图获取需要向其他节点发送的字节数 */
-    sendcounts = getSendBufferSize(graph, size, rank);
-    memset(sdispls, 0, size * sizeof(int));
-    /* 计算发送和接收缓冲区偏移 */
-    for (i = 1; i != size; i++) {
-        sdispls[i] += (sdispls[i - 1] + sendcounts[i - 1]);
-    }
-    /* 将要发送的数据从graph中拷贝到发送缓存sb中 */
-    recordTick("bgetsendbuffer");
-    sb = getSendbuffer(graph, sendcounts, sdispls, size, rank);
-    recordTick("egetsendbuffer");
+    gmr->initGraph(&graph);
 
     while(true && iterNum < MAX_ITERATION && iterNum < gmr->algoIterNum){
+        if (rb != NULL && rbsize > 0) {
+            /*合并其他节点传递过来的顶点，计算并判断是否迭代结束*/
+            recordTick("bcomputing");
+            computing(rank, &graph, rb, rbsize, gmr, reduceResult); 
+            recordTick("ecomputing");
+        }
+
+        /* 获取发送数据的大小, 并将其放到发送缓冲区 */
+        /* 从当前子图获取需要向其他节点发送的字节数 */
+        sendcounts = getSendBufferSize(&graph, size, rank);
         memset(allothersendcounts, 0, (size + 1) * size * sizeof(int));
         memset(sendcountswithconv, 0, (size + 1) * sizeof(int));
         memset(recvcounts, 0, size * sizeof(int));
-        //memset(sdispls, 0, size * sizeof(int));
+        memset(sdispls, 0, size * sizeof(int));
         memset(rdispls, 0, size * sizeof(int));
 
         /* 打印出节点发送缓冲区大小 */
@@ -136,7 +138,7 @@ int main(int argc, char *argv[]) {
          * ,接收数据后,首先判断所有进程的收敛进度是否接收,再拷贝接收缓存大小 */
         recordTick("bexchangecounts");
         /* 将收敛精度乘以10000, 实际上是以精确到小数点后两位以整数形式发送 */
-        int convergence = (int)(1.0 * convergentVertex / graph->nvtxs * 10000);
+        int convergence = (int)(1.0 * convergentVertex / graph.nvtxs * 10000);
         memcpy(sendcountswithconv, sendcounts, size * sizeof(int));
         memcpy(sendcountswithconv + size, &convergence, sizeof(int));
         /* 交换需要发送字节数和收敛的进度 */
@@ -168,14 +170,14 @@ int main(int argc, char *argv[]) {
         }
         /* 计算发送和接收缓冲区偏移 */
         for (i = 1; i != size; i++) {
-            //sdispls[i] += (sdispls[i - 1] + sendcounts[i - 1]);
+            sdispls[i] += (sdispls[i - 1] + sendcounts[i - 1]);
             rdispls[i] += (rdispls[i - 1] + recvcounts[i - 1]);
         }
 
         /* 将要发送的数据从graph中拷贝到发送缓存sb中 */
-        //recordTick("bgetsendbuffer");
-        //sb = getSendbuffer(graph, sendcounts, sdispls, size, rank);
-        //recordTick("egetsendbuffer");
+        recordTick("bgetsendbuffer");
+        sb = getSendbuffer(&graph, sendcounts, sdispls, size, rank);
+        recordTick("egetsendbuffer");
 
         /* 调用MPIA_Alltoallv(), 交换数据 */
         recordTick("bexchangedata");
@@ -184,14 +186,21 @@ int main(int argc, char *argv[]) {
         recordTick("eexchangedata");
 
         /* 打印输出接收到的图顶点信息 */
-        int rbsize = accumulate(recvcounts, recvcounts + size, 0);
+        rbsize = accumulate(recvcounts, recvcounts + size, 0);
         totalRecvBytes += rbsize;
 
+        /* 将最终迭代的结果进行更新到子图上, 并判断迭代是否结束 */
+        recordTick("bupdategraph");
+        updateGraph(&graph, reduceResult, gmr->upmode);
+        reduceResult.clear();
+        recordTick("eupdategraph");
+
         /*合并其他节点传递过来的顶点，计算并判断是否迭代结束*/
-        recordTick("bcomputing");
-        computing(rank, graph, rb, rbsize, gmr); 
-        recordTick("ecomputing");
-        free(rb);
+        //recordTick("bcomputing");
+        //computing(rank, graph, rb, rbsize, gmr); 
+        //recordTick("ecomputing");
+        //free(rb);
+        free(sendcounts);
         MPI_Barrier(MPI_COMM_WORLD);
         recordTick("eiteration");
 
@@ -204,9 +213,9 @@ int main(int argc, char *argv[]) {
     MPI_Finalize();
     /* 打印处理完之后的结果(图) */
     //displayGraph(graph);
-    gmr->printResult(graph);
+    gmr->printResult(&graph);
     graph_Free(&graph);
-    free(sendcounts);
+//     free(sendcounts);
     free(sb); 
     if (sdispls) free(sdispls); if(rdispls) free(rdispls);
     if (recvcounts) free(recvcounts);

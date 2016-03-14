@@ -7,7 +7,7 @@ CC= mpic++
 CC_FLAG=-Wall -std=c++11
 
 OBJ=
-PRG=gmr
+PRG=igmr
 
 $(PRG): *.cpp *.h
 		$(CC) $(CC_FLAG) $(INC) $(LIB) -o $@ $@.cpp

@@ -5,7 +5,7 @@
 /**************************************************************************/
 
 /* 判断是否在控制台打印调试信息 */
-#define INFO   false 
+#define INFO   true 
 #define DEBUG  false 
 
 /* 子图更新的方式:
@@ -156,7 +156,8 @@ void updateGraph(graph_t *graph, std::list<KV> &reduceResult, UpdateMode upmode)
 }
 
 /*将单个节点内的顶点映射为Key/value, 对Key排序后，再进行规约*/
-void computing(int rank, graph_t *graph, char *rb, int recvbuffersize, GMR *gmr) {
+void computing(int rank, graph_t *graph, char *rb, int recvbuffersize,
+        GMR *gmr, std::list<KV> &reduceResult) {
     std::vector<KV> kvs;
     Vertex vertex;
 
@@ -225,7 +226,7 @@ void computing(int rank, graph_t *graph, char *rb, int recvbuffersize, GMR *gmr)
 
     recordTick("breduce");
     std::list<KV> sameKeylist;
-    std::list<KV> reduceResult;
+    //std::list<KV> reduceResult;
     for (KV kv : kvs) {
         if(sameKeylist.size() > 0 && gmr->keyComp(kv, sameKeylist.front()) != 0) {
             KV tmpkv = gmr->reduce(sameKeylist);
@@ -239,17 +240,17 @@ void computing(int rank, graph_t *graph, char *rb, int recvbuffersize, GMR *gmr)
     recordTick("ereduce");
 
     /* 将最终迭代的结果进行更新到子图上, 并判断迭代是否结束 */
-    recordTick("bupdategraph");
-    updateGraph(graph, reduceResult, gmr->upmode);
-    recordTick("eupdategraph");
+    //recordTick("bupdategraph");
+    //updateGraph(graph, reduceResult, gmr->upmode);
+    //recordTick("eupdategraph");
 }
 
 /* 打印计算的过程中的信息: 迭代次数, 各个步骤耗时 */
 void printTimeConsume(int rank) {
-    printf("P-%d, %dth(%-6.2f%%), D:%-8.5f, Time:%f=(%f[excount] + %f[exdata]"
+    printf("P-%d, %dth(%-6.2f%%), D:%ef, Time:%f=(%f[excount] + %f[exdata]"
             "+ %f[comp](%f[map] + %f[sort] + %f[reduce] + %f[update])"
             " + %f[barr])\n", rank, iterNum, convergentVertex * 1.0 / ntxs * 100,
-            remainDeviation, timeRecorder["eiteration"] - timeRecorder["bexchangecounts"],
+            remainDeviation, timeRecorder["eiteration"] - timeRecorder["bcomputing"],
             timeRecorder["eexchangecounts"] - timeRecorder["bexchangecounts"],
             timeRecorder["eexchangedata"] - timeRecorder["bexchangedata"],
             timeRecorder["ecomputing"] - timeRecorder["bcomputing"],
@@ -257,7 +258,7 @@ void printTimeConsume(int rank) {
             timeRecorder["esort"] - timeRecorder["bsort"], 
             timeRecorder["ereduce"] - timeRecorder["breduce"], 
             timeRecorder["eupdategraph"] - timeRecorder["bupdategraph"], 
-            timeRecorder["eiteration"] - timeRecorder["ecomputing"]);
+            timeRecorder["eiteration"] - timeRecorder["eupdategraph"]);
 }
 
 int checkfileexist(char *fname) {

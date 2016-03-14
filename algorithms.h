@@ -101,7 +101,7 @@ class TriangleCount : public GMR {
     void initGraph(graph_t *graph) {
         printf("==========>TriangleCount<==========\n");
         /* TriangleCount算法中, 只需要迭代一次即可结束 */
-        algoIterNum = 1;
+        algoIterNum = 2;
         /* 子图的更新方式为累加形式, 即△ (1, 2, 3)和△ (1, 4, 5)都作为
          * 顶点1的值累加上去 */
         upmode = accu;

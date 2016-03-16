@@ -34,7 +34,7 @@ using namespace std;
  */
 int main(int argc, char *argv[]) {
     /* rank, size: MPI进程序号和进程数, sb: 发送缓存, rb: 接收缓存 */
-    int rank, size, i, rbsize = 0;
+    int rank, size, i, rbsize = 0, sbsize = 0;
     char *sb = nullptr, *rb = nullptr;
     graph_t graph;
     GMR *gmr = nullptr;
@@ -53,7 +53,7 @@ int main(int argc, char *argv[]) {
      * sdispls, rdispls: 发送和接收数据缓冲区的偏移 */
     int *allothersendcounts = (int*)malloc((size + 1) * size * sizeof(int));
     int *sendcountswithconv = (int*)malloc((size + 1) * sizeof(int));
-    int *sendcounts         = NULL;
+    int *sendcounts         = (int*)malloc(size * sizeof(int));
     int *recvcounts         = (int*)malloc(size * sizeof(int));
     int *sdispls            = (int*)malloc(size * sizeof(int));
     int *rdispls            = (int*)malloc(size * sizeof(int));
@@ -71,12 +71,15 @@ int main(int argc, char *argv[]) {
     }
     
     if (argc > 2)
-//         graph = graph_Read(argv[2], rank, size);
         read_input_file(rank, size, argv[2], &graph);
     else
-//         graph = graph_Read("graph/4elt.graph", rank, size);
         read_input_file(rank, size, "graph/small.graph", &graph);
 
+//         for (int i = 0; i < 5; i++) {
+//             for (int j = graph.adjncy[i]; j < graph.adjncy[i + 1]; j++)
+//                 if (graph.adjloc[j] > size)
+//                     printf("OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO\n");
+//         }
     printf("Process %d: G(|V|, |E|) = (%d, %d)\n", rank, graph.nvtxs,
             graph.nedges);
     /* 根据调用命令行实例化相应算法, 没用提供则模式使用TriangeCount算法 */
@@ -109,16 +112,18 @@ int main(int argc, char *argv[]) {
     gmr->initGraph(&graph);
 
     while(true && iterNum < MAX_ITERATION && iterNum < gmr->algoIterNum){
-        if (rb != NULL && rbsize > 0) {
-            /*合并其他节点传递过来的顶点，计算并判断是否迭代结束*/
-            recordTick("bcomputing");
-            computing(rank, &graph, rb, rbsize, gmr, reduceResult); 
-            recordTick("ecomputing");
-        }
+        /*合并其他节点传递过来的顶点，计算并判断是否迭代结束*/
+        recordTick("bcomputing");
+        computing(rank, &graph, rb, rbsize, gmr, reduceResult); 
+        recordTick("ecomputing");
+
+        // 释放rb, sb
+        if (rbsize > 0) free(rb), rbsize = 0;
+        if (sbsize > 0) free(sb), sbsize = 0;
 
         /* 获取发送数据的大小, 并将其放到发送缓冲区 */
         /* 从当前子图获取需要向其他节点发送的字节数 */
-        sendcounts = getSendBufferSize(&graph, size, rank);
+        getSendBufferSize(&graph, size, rank, sendcounts);
         memset(allothersendcounts, 0, (size + 1) * size * sizeof(int));
         memset(sendcountswithconv, 0, (size + 1) * sizeof(int));
         memset(recvcounts, 0, size * sizeof(int));
@@ -147,7 +152,6 @@ int main(int argc, char *argv[]) {
         i = size;
         while(allothersendcounts[i] == 10000 && i < (size + 1) * size) i += (size + 1);
         if (i > (size + 1) * size - 1) break;
-
         /* 将本节点接收缓存区大小拷贝到recvcounts中 */
         for (i = 0; i < size; i++)
             recvcounts[i] = allothersendcounts[rank + i * (size + 1)];
@@ -163,10 +167,18 @@ int main(int argc, char *argv[]) {
         }
 
         /* 申请发送和接收数据的空间 */
+        rbsize = accumulate(recvcounts, recvcounts + size, 0);
+        sbsize = accumulate(sendcounts, sendcounts + size, 0);
+        totalRecvBytes += rbsize;
         rb = (char*)malloc(accumulate(recvcounts, recvcounts + size, 0));
         if ( !rb ) {
             perror( "can't allocate recv buffer");
-            free(sb); MPI_Abort(MPI_COMM_WORLD,EXIT_FAILURE);
+            MPI_Abort(MPI_COMM_WORLD,EXIT_FAILURE);
+        }
+        sb = (char*)malloc(sbsize * sizeof(char));
+        if ( !sb ) {
+            perror( "can't allocate send buffer");
+            free(rb); MPI_Abort(MPI_COMM_WORLD,EXIT_FAILURE);
         }
         /* 计算发送和接收缓冲区偏移 */
         for (i = 1; i != size; i++) {
@@ -176,7 +188,7 @@ int main(int argc, char *argv[]) {
 
         /* 将要发送的数据从graph中拷贝到发送缓存sb中 */
         recordTick("bgetsendbuffer");
-        sb = getSendbuffer(&graph, sendcounts, sdispls, size, rank);
+        if (sbsize > 0) getSendbuffer(&graph, sdispls, size, rank, sb);
         recordTick("egetsendbuffer");
 
         /* 调用MPIA_Alltoallv(), 交换数据 */
@@ -185,22 +197,12 @@ int main(int argc, char *argv[]) {
                 rdispls, MPI_CHAR, MPI_COMM_WORLD);
         recordTick("eexchangedata");
 
-        /* 打印输出接收到的图顶点信息 */
-        rbsize = accumulate(recvcounts, recvcounts + size, 0);
-        totalRecvBytes += rbsize;
-
         /* 将最终迭代的结果进行更新到子图上, 并判断迭代是否结束 */
         recordTick("bupdategraph");
-        updateGraph(&graph, reduceResult, gmr->upmode);
+        updateGraph(rank, &graph, reduceResult, gmr->upmode);
         reduceResult.clear();
         recordTick("eupdategraph");
 
-        /*合并其他节点传递过来的顶点，计算并判断是否迭代结束*/
-        //recordTick("bcomputing");
-        //computing(rank, graph, rb, rbsize, gmr); 
-        //recordTick("ecomputing");
-        //free(rb);
-        free(sendcounts);
         MPI_Barrier(MPI_COMM_WORLD);
         recordTick("eiteration");
 
@@ -215,8 +217,7 @@ int main(int argc, char *argv[]) {
     //displayGraph(graph);
     gmr->printResult(&graph);
     graph_Free(&graph);
-//     free(sendcounts);
-    free(sb); 
+    if (sendcounts) free(sendcounts);
     if (sdispls) free(sdispls); if(rdispls) free(rdispls);
     if (recvcounts) free(recvcounts);
     if(allothersendcounts) free(allothersendcounts);

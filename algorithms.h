@@ -53,6 +53,9 @@ public:
             }
             else
                 graph->fvwgts[i] = FLT_MAX;
+            for(int j = graph->xadj[i]; j < graph->xadj[i + 1]; j++)
+                graph->fadjwgt[j] = 1.0f;
+            graph->status[i] = active;
         }
     }
 
@@ -90,7 +93,10 @@ public:
     ssize_t startv;
 
     /* 输出算法的执行结果 */
-    virtual void printResult(graph_t *graph) { }
+    virtual void printResult(graph_t *graph) {
+        for (int i = 0; i < graph->nvtxs; i++)
+            printf("path_len(%zd, %d):%f\n", startv, graph->ivsizes[i], graph->fvwgts[i]);
+    }
 };
 
 /****************************************************

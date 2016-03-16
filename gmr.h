@@ -5,7 +5,7 @@
 /**************************************************************************/
 
 /* 判断是否在控制台打印调试信息 */
-#define INFO   true 
+#define INFO   false 
 #define DEBUG  false 
 
 /* 子图更新的方式:
@@ -114,7 +114,7 @@ size_t GMR::algoIterNum = INT_MAX;
 UpdateMode GMR::upmode = cover;
 
 /* 将图中指定id的顶点的值进行更新, 并返回迭代是否结束 */
-void updateGraph(graph_t *graph, std::list<KV> &reduceResult, UpdateMode upmode) {
+void updateGraph(int rank, graph_t *graph, std::list<KV> &reduceResult, UpdateMode upmode) {
     int i = 0;
     float currentMaxDeviation = 0.0;
     auto iter = reduceResult.begin();
@@ -160,7 +160,6 @@ void computing(int rank, graph_t *graph, char *rb, int recvbuffersize,
         GMR *gmr, std::list<KV> &reduceResult) {
     std::vector<KV> kvs;
     Vertex vertex;
-
     recordTick("bgraphmap");
     for (int i=0; i<graph->nvtxs; i++) {
         //if (graph->status[i] == inactive) continue;

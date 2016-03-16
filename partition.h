@@ -182,6 +182,7 @@ void read_input_file(int myRank, int numProcs, char *fname, graph_t *graph)
   MPI_Status status;
   int ack_tag = 5, count_tag = 10, id_tag = 15;
   graph_t *send_graph;
+  double readfile_start = MPI_Wtime();
 
   if (myRank == 0){
 
@@ -214,11 +215,6 @@ void read_input_file(int myRank, int numProcs, char *fname, graph_t *graph)
     int old_vid = 1;
     for (i=0; i < numGlobalVertices; i++){
       num = get_next_vertex(fp, vals);
-      /*if (num != 0 && vals[0] == old_vid && old_vid != 1) {
-         printf("error input file.\n");
-         MPI_Finalize();
-         exit(1);
-      }*/
 //       printf("get num:%d\n", num);
       if (num == 0) {
         for (j = 1; i < numGlobalVertices; j++, i++) {
@@ -231,11 +227,6 @@ void read_input_file(int myRank, int numProcs, char *fname, graph_t *graph)
         break;
       }
       if (num < 2) input_file_error(numProcs, count_tag, 1);
-//        for (int k = 0; k < num; k++) {
-//          printf("%d ", vals[k]);
-//        }
-//        printf("\n");
-//       printf("======>after get from point:%d\n", vals[0]);
 
       /* 如果读取的图顶点的id, 与前一个读取的图顶点id不连续, 则需要补足中间不连续部分 */
       if (vals[0] - old_vid > 1) {
@@ -253,9 +244,7 @@ void read_input_file(int myRank, int numProcs, char *fname, graph_t *graph)
         }
       }
 
-      old_vid = vals[0];
-
-      vGID = vals[0];
+      old_vid = vGID = vals[0];
       nnbors = vals[1];
 
       if (num < (nnbors + 2)) input_file_error(numProcs, count_tag, 1);
@@ -267,18 +256,17 @@ void read_input_file(int myRank, int numProcs, char *fname, graph_t *graph)
 
       graph->xadj[i+1] = graph->xadj[i] + nnbors;
     }
-    printf("end of read file\n");
+    printf("成功读取文件, 耗时:%f\n", MPI_Wtime() - readfile_start);
 
     fclose(fp);
 
     /* Assign each vertex to a process using a hash function */
-    for (i=0; i <numGlobalNeighbors; i++){
+    for (i=0; i < numGlobalNeighbors; i++){
       id = (unsigned int)graph->adjncy[i];
       graph->adjloc[i] = simple_hash(&id, numProcs);
     } 
 
     /* Create a sub graph for each process */
-
     send_graph = (graph_t *)calloc(sizeof(graph_t) , numProcs);
 
     for (i=0; i < numGlobalVertices; i++){
@@ -310,12 +298,9 @@ void read_input_file(int myRank, int numProcs, char *fname, graph_t *graph)
     }
 
     for (i=0; i < numProcs; i++){
-
       num = send_graph[i].xadj[send_graph[i].nvtxs];
-
       send_graph[i].adjncy = (int *)malloc(sizeof(int) * num);
       send_graph[i].adjloc= (int *)malloc(sizeof(int) * num);
-
       send_graph[i].nedges = num;
     }
 
@@ -334,7 +319,6 @@ void read_input_file(int myRank, int numProcs, char *fname, graph_t *graph)
   
         memcpy(send_graph[procID].adjloc + j, graph->adjloc + graph->xadj[i],
                nnbors * sizeof(int));
-  
         idx[procID] = j + nnbors;
       }
     }
@@ -342,7 +326,6 @@ void read_input_file(int myRank, int numProcs, char *fname, graph_t *graph)
     free(idx);
 
     /* Process zero sub-graph */
-
     free(graph->ivsizes);
     free(graph->xadj);
     free(graph->adjncy);
@@ -438,11 +421,21 @@ void read_input_file(int myRank, int numProcs, char *fname, graph_t *graph)
       exit(1);
     }
   }
+//   printf("Graph==>%d:", myRank);
+//   for (i = 0; i < graph->nvtxs; i++) {
+//     printf(" %d-->(", graph->ivsizes[i]);
+//     for (j = graph->xadj[i]; j < graph->xadj[i + 1]; j++) {
+//         if (graph->adjloc[j] > numProcs && myRank == 2);
+//         printf(" %d@%d ", graph->adjncy[j], graph->adjloc[j]);
+//     }
+//     printf(")  ");
+//   }
+//   printf("\n");
 }
 
 /* 获取发往其他各运算节点的字节数 */
-int *getSendBufferSize(const graph_t *graph, const int psize, const int rank) {
-    int *sendcounts = (int*)malloc(psize * sizeof(int));
+int *getSendBufferSize(const graph_t *graph, const int psize, const int rank, 
+        int *sendcounts) {
     memset(sendcounts, 0, psize * sizeof(int));
     /* 先遍历一次需要发送的数据，确定需要和每个节点交换的数据 */
     for (int i=0; i<graph->nvtxs; i++) {
@@ -454,13 +447,13 @@ int *getSendBufferSize(const graph_t *graph, const int psize, const int rank) {
         // id, loc, weight of vertex
         currentVertexSize += sizeof(int);
         currentVertexSize += sizeof(int);
-        currentVertexSize += graph->ivwgts ? sizeof(int) : sizeof(float);
+        currentVertexSize += sizeof(float);
         // quantity, terminal, location and weight of edges
         int neighborNum = graph->xadj[i+1] - graph->xadj[i];
         currentVertexSize += sizeof(int);
         currentVertexSize += neighborNum * sizeof(int);
         currentVertexSize += neighborNum * sizeof(int);
-        currentVertexSize += neighborNum * (graph->iadjwgt ?  sizeof (int) : sizeof(float));
+        currentVertexSize += neighborNum * sizeof(float);
 
         /* visited 用于记录当前遍历的顶点是否已经发送给节点adjloc[j] */
         short visited[MAX_PROCESSOR];
@@ -478,15 +471,8 @@ int *getSendBufferSize(const graph_t *graph, const int psize, const int rank) {
 }
 
 /* 将要发送的数据从graph中拷贝到发送缓存sb中 */
-char *getSendbuffer(graph_t *graph, int *sendcounts, int *sdispls, 
-        int psize, int rank) {
-    /* 申请发送缓存 */
-    char *sb = (char*)malloc(std::accumulate(sendcounts, sendcounts + psize, 0));
-    if ( !sb ) {
-        perror( "can't allocate send buffer" );
-        MPI_Abort(MPI_COMM_WORLD,EXIT_FAILURE); 
-    }
-
+char *getSendbuffer(graph_t *graph, int *sdispls, 
+        int psize, int rank, char *sb) {
     /* 将要发送顶点拷贝到对应的缓存: 内存拷贝(是否有方法减少拷贝?) */
     int *offsets = (int*)malloc(psize * sizeof(int));
     memset(offsets, 0, psize * sizeof(int));
@@ -499,13 +485,13 @@ char *getSendbuffer(graph_t *graph, int *sendcounts, int *sdispls,
         // accumulate the size of id, loc, weight of vertex
         currentVertexSize += sizeof(int);
         currentVertexSize += sizeof(int);
-        currentVertexSize += graph->ivwgts ? sizeof(int) : sizeof(float);
+        currentVertexSize += sizeof(float);
         // accumulate the quantity , terminal, loc and weight of edges
         int neighborNum = graph->xadj[i+1] - graph->xadj[i];
         currentVertexSize += sizeof(int);
         currentVertexSize += neighborNum * sizeof(int);
         currentVertexSize += neighborNum * sizeof(int);
-        currentVertexSize += neighborNum * (graph->iadjwgt ? sizeof(int) : sizeof(float));
+        currentVertexSize += neighborNum * sizeof(float);
 
         /* vertex memory image: (id | location | weight | edgenum 
          * | edges1-n | locationOfedges1-n | weightOfedges1-n) */
@@ -519,14 +505,8 @@ char *getSendbuffer(graph_t *graph, int *sendcounts, int *sdispls,
                 neighborNum * sizeof(int));
         memcpy(vertex + (3 + neighborNum) * sizeof(int) + sizeof(float), 
                 &(graph->adjloc[graph->xadj[i]]), neighborNum * sizeof(int));
-
-        /* 将顶点的边的权重weight拷贝进发送缓存 */
-        if (graph->iadjwgt) 
-            memcpy(vertex + (3 + 2 * neighborNum) * sizeof(int) + sizeof(float), 
-                    &(graph->iadjwgt[graph->xadj[i]]), neighborNum * sizeof(int));
-        else 
-            memcpy(vertex + (3 + 2 * neighborNum) * sizeof(int) + sizeof(float), 
-                    &(graph->fadjwgt[graph->xadj[i]]), neighborNum * sizeof(float));
+        memcpy(vertex + (3 + 2 * neighborNum) * sizeof(int) + sizeof(float), 
+                &(graph->fadjwgt[graph->xadj[i]]), neighborNum * sizeof(float));
 
         /* visited 用于记录当前遍历的顶点是否已经发送给节点adjloc[j]*/
         short visited[MAX_PROCESSOR];
@@ -547,7 +527,7 @@ char *getSendbuffer(graph_t *graph, int *sendcounts, int *sdispls,
 
 void graph_Free(graph_t *graph) {
     if (graph->nvtxs > 0) {
-        free(graph->iviszes);
+        free(graph->ivsizes);
         free(graph->xadj);
     }
 //     if (graph->ivsizes != NULL) free(graph->ivsizes);

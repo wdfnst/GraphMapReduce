@@ -133,13 +133,19 @@ void updateGraph(int rank, graph_t *graph, std::list<KV> &reduceResult, UpdateMo
                 if(graph->status[i] == inactive) {
                     graph->status[i] = active;
                     convergentVertex--;
+//                     printf("Process %d @ %d: Inactive-->Active.\n", iter->key, rank);
                 }
+//                 else
+//                 printf("Process %d @ %d: Active-->Active.\n", iter->key, rank);
             }
             else {
                 if(graph->status[i] == active) {
                     convergentVertex++;
                     graph->status[i] = inactive;
+//                     printf("Process %d @ %d: Active-->Inactive.\n", iter->key, rank);
                 }
+//                 else
+//                     printf("Process %d @ %d: Active-->Active.\n", iter->key, rank);
             }
             if (upmode == accu) 
                 graph->fvwgts[i] += iter->value;
@@ -237,19 +243,17 @@ void computing(int rank, graph_t *graph, char *rb, int recvbuffersize,
     reduceResult.push_back(gmr->reduce(sameKeylist));
     sameKeylist.clear();
     recordTick("ereduce");
-
-    /* 将最终迭代的结果进行更新到子图上, 并判断迭代是否结束 */
-    //recordTick("bupdategraph");
-    //updateGraph(graph, reduceResult, gmr->upmode);
-    //recordTick("eupdategraph");
 }
 
 /* 打印计算的过程中的信息: 迭代次数, 各个步骤耗时 */
 void printTimeConsume(int rank) {
+    float convergence = 100.00;
+    if (ntxs > 0) 
+        convergence = 1.0 * convergentVertex / ntxs * 100;
     printf("P-%d, %dth(%-6.2f%%), D:%ef, Time:%f=(%f[excount] + %f[exdata]"
             "+ %f[comp](%f[map] + %f[sort] + %f[reduce] + %f[update])"
-            " + %f[barr])\n", rank, iterNum, convergentVertex * 1.0 / ntxs * 100,
-            remainDeviation, timeRecorder["eiteration"] - timeRecorder["bcomputing"],
+            " + %f[barr])\n", rank, iterNum, convergence, remainDeviation,
+            timeRecorder["eiteration"] - timeRecorder["bcomputing"],
             timeRecorder["eexchangecounts"] - timeRecorder["bexchangecounts"],
             timeRecorder["eexchangedata"] - timeRecorder["bexchangedata"],
             timeRecorder["ecomputing"] - timeRecorder["bcomputing"],

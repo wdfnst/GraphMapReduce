@@ -70,16 +70,17 @@ int main(int argc, char *argv[]) {
         exit(0);
     }
     
-    if (argc > 2)
-        read_input_file(rank, size, argv[2], &graph);
+    if (argc > 2) {
+        if (checkfileexist(argv[2]))
+            read_input_file(rank, size, argv[2], &graph);
+        else {
+            MPI_Finalize();
+            exit(0);
+        }
+    }
     else
         read_input_file(rank, size, "graph/small.graph", &graph);
 
-//         for (int i = 0; i < 5; i++) {
-//             for (int j = graph.adjncy[i]; j < graph.adjncy[i + 1]; j++)
-//                 if (graph.adjloc[j] > size)
-//                     printf("OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO\n");
-//         }
     printf("Process %d: G(|V|, |E|) = (%d, %d)\n", rank, graph.nvtxs,
             graph.nedges);
     /* 根据调用命令行实例化相应算法, 没用提供则模式使用TriangeCount算法 */
@@ -112,15 +113,6 @@ int main(int argc, char *argv[]) {
     gmr->initGraph(&graph);
 
     while(true && iterNum < MAX_ITERATION && iterNum < gmr->algoIterNum){
-        /*合并其他节点传递过来的顶点，计算并判断是否迭代结束*/
-        recordTick("bcomputing");
-        computing(rank, &graph, rb, rbsize, gmr, reduceResult); 
-        recordTick("ecomputing");
-
-        // 释放rb, sb
-        if (rbsize > 0) free(rb), rbsize = 0;
-        if (sbsize > 0) free(sb), sbsize = 0;
-
         /* 获取发送数据的大小, 并将其放到发送缓冲区 */
         /* 从当前子图获取需要向其他节点发送的字节数 */
         getSendBufferSize(&graph, size, rank, sendcounts);
@@ -143,7 +135,9 @@ int main(int argc, char *argv[]) {
          * ,接收数据后,首先判断所有进程的收敛进度是否接收,再拷贝接收缓存大小 */
         recordTick("bexchangecounts");
         /* 将收敛精度乘以10000, 实际上是以精确到小数点后两位以整数形式发送 */
-        int convergence = (int)(1.0 * convergentVertex / graph.nvtxs * 10000);
+        int convergence = 10000;
+        if (graph.nvtxs > 0) 
+            convergence = (int)(1.0 * convergentVertex / graph.nvtxs * 10000);
         memcpy(sendcountswithconv, sendcounts, size * sizeof(int));
         memcpy(sendcountswithconv + size, &convergence, sizeof(int));
         /* 交换需要发送字节数和收敛的进度 */
@@ -196,6 +190,15 @@ int main(int argc, char *argv[]) {
         MPI_Alltoallv(sb, sendcounts, sdispls, MPI_CHAR, rb, recvcounts,
                 rdispls, MPI_CHAR, MPI_COMM_WORLD);
         recordTick("eexchangedata");
+
+        /*合并其他节点传递过来的顶点，计算并判断是否迭代结束*/
+        recordTick("bcomputing");
+        computing(rank, &graph, rb, rbsize, gmr, reduceResult); 
+        recordTick("ecomputing");
+        
+        // 释放rb, sb
+        if (rbsize > 0) free(rb), rbsize = 0;
+        if (sbsize > 0) free(sb), sbsize = 0;
 
         /* 将最终迭代的结果进行更新到子图上, 并判断迭代是否结束 */
         recordTick("bupdategraph");

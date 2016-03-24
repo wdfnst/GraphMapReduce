@@ -6,6 +6,10 @@ public:
     /* 根据PageRank算法特点和需要,对图进行初始化 */
     void initGraph(graph_t *graph) {
         printf("==========>PageRank<==========\n");
+        for (int i=0; i<graph->nvtxs; i++) {
+            graph->fvwgts[i] = 1.0f;
+            graph->status[i] = active;
+        }
     }
 
     /* Map/Reduce编程模型中的Map函数 */
@@ -51,8 +55,9 @@ public:
             if (graph->ivsizes[i] == startv)  {
                 graph->fvwgts[i] = 0;
             }
-            else
+            else {
                 graph->fvwgts[i] = FLT_MAX;
+            }
             for(int j = graph->xadj[i]; j < graph->xadj[i + 1]; j++)
                 graph->fadjwgt[j] = 1.0f;
             graph->status[i] = active;
@@ -64,11 +69,16 @@ public:
         kvs.push_back({v.id, v.value});
         if(DEBUG) printf("%dth map result: %d %f\n", iterNum,
                 v.id, v.value);
-        for (int i = 0; i < v.neighborSize; i++) {
-            kvs.push_back({v.neighbors[i], v.value + v.edgewgt[i]});
+        for (int i = 0; i < v.prenvtxs; i++) {
+            kvs.push_back({v.id, v.prefwgt[i] + v.prefewgt[i]});
             if(DEBUG) printf("%dth map result: %d-->%d %f + %f\n", iterNum,
-                    v.id, v.neighbors[i], v.value, v.edgewgt[i]);
+                    v.previd[i], v.id, v.prefwgt[i], v.prefewgt[i]);
         }
+//         for (int i = 0; i < v.neighborSize; i++) {
+//             kvs.push_back({v.neighbors[i], v.value + v.edgewgt[i]});
+//             if(DEBUG) printf("%dth map result: %d-->%d %f + %f\n", iterNum,
+//                     v.id, v.neighbors[i], v.value, v.edgewgt[i]);
+//         }
     }
 
     /* 用于将Map/Reduce计算过程中产生的KV list进行排序 */
@@ -95,6 +105,8 @@ public:
     /* 输出算法的执行结果 */
     virtual void printResult(graph_t *graph) {
         for (int i = 0; i < graph->nvtxs; i++)
+            if (graph->nvtxs < 100 || graph->ivsizes[i] % 10000 == 0)
+            //if (graph->fvwgts[i] < FLT_MAX)
             printf("path_len(%zd, %d):%f\n", startv, graph->ivsizes[i], graph->fvwgts[i]);
     }
 };

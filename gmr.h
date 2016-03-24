@@ -57,6 +57,10 @@ auto KVComp = [](KV kv1, KV kv2) -> bool {
         return false;
 };
 
+bool edgeComp(Edge e1, Edge e2) {
+    return e1.vid < e2.vid;
+}
+
 /* 记录当前程序执行到当前位置的MPI_Wtime */
 void recordTick(std::string tickname) {
     timeRecorder[tickname] = MPI_Wtime();
@@ -65,8 +69,10 @@ void recordTick(std::string tickname) {
 /* 用于从csr(Compressed Sparse Row)中生成Vertex顶点进行map/reduce */
 /* 用于业务逻辑计算，而非图的表示 */
 struct Vertex {
-    int id, loc, neighborSize, neighbors[MAX_NEIGHBORSIZE], neighborsloc[MAX_NEIGHBORSIZE];
-    float value, edgewgt[MAX_NEIGHBORSIZE];
+    int id, loc, neighborSize, prenvtxs;
+    std::vector<int> neighbors, neighborsloc, previd;
+    std::vector<float> prefwgt, prefewgt, edgewgt;
+    float value;
     bool operator==(int key) {
         return this->id == key;
     }
@@ -112,6 +118,45 @@ public:
 };
 size_t GMR::algoIterNum = INT_MAX;
 UpdateMode GMR::upmode = cover;
+
+/* 将其他节点传递过来的数据更新到本节点顶点的前驱中 */
+void updateGraph(graph_t *graph, Edge *rb, int rbsize, int rank) {
+    int i = 0, j = 0, m = 0, n = 0;
+    graph->prexadj[0] = 0;
+    while (i < graph->nvtxs && j < rbsize) {
+        if (graph->ivsizes[i] < rb[j].vid) {
+            /* 第一次同步数据之后, 需要将prexadj填充 */
+            if (graph->prexadj[i + 1] == 0)
+                graph->prexadj[i + 1] = m;
+            i++;
+        }
+        else if (graph->ivsizes[i] > rb[j].vid) {
+            perror( "接收的前驱数据有误.\n");
+            MPI_Finalize();
+            exit(1);
+        }
+        else {
+            /* 将其他节点传递过来的前驱, 更新到graph的前驱缓存中 */
+            for (n = graph->prexadj[i]; n < graph->prexadj[i + 1]; n++) {
+                if(graph->preadjncy[n] == rb[j].fvid) {
+                    graph->prefvwgts[n] = rb[j].fwgt;
+                    graph->prefadjwgt[n] = rb[j].fewgt;
+                    break;
+                }
+            }
+            /* 如果从其他节点传来的前驱还未在preadjncy中, 则将其加入 */
+            if (n >= graph->prexadj[i + 1]) {
+                graph->preadjncy[m] = rb[j].fvid;
+                graph->prefvwgts[m] = rb[j].fwgt;
+                graph->prefadjwgt[m] = rb[j].fewgt;
+                m++;
+            }
+            graph->prestatus[i] = active;
+            j++;
+        }
+    }
+    if (graph->prexadj[graph->nvtxs] == 0) graph->prexadj[graph->nvtxs] = m;
+}
 
 /* 将图中指定id的顶点的值进行更新, 并返回迭代是否结束 */
 void updateGraph(int rank, graph_t *graph, std::list<KV> &reduceResult, UpdateMode upmode) {
@@ -165,68 +210,71 @@ void updateGraph(int rank, graph_t *graph, std::list<KV> &reduceResult, UpdateMo
 void computing(int rank, graph_t *graph, char *rb, int recvbuffersize,
         GMR *gmr, std::list<KV> &reduceResult) {
     std::vector<KV> kvs;
-    Vertex vertex;
     recordTick("bgraphmap");
     for (int i=0; i<graph->nvtxs; i++) {
-        //if (graph->status[i] == inactive) continue;
+        Vertex vertex;
+        /* 判断其前驱是否有过更改 */
+        if (graph->prestatus[i] == inactive) continue;
         vertex.id = graph->ivsizes[i];
         vertex.value = graph->fvwgts[i];
         vertex.neighborSize = graph->xadj[i+1] - graph->xadj[i];
-        if (vertex.neighborSize > MAX_NEIGHBORSIZE) {
-            printf("Neighbor Size exceeds the maximum neighbor size.\n");
-            perror("Neighbor Size exceeds the maximum neighbor size.\n");
-            exit(0);
-        }
+        vertex.prenvtxs = graph->prexadj[i + 1] - graph->prexadj[i];
         int neighbor_sn = 0;
         for (int j=graph->xadj[i]; j<graph->xadj[i+1]; j++, neighbor_sn++) {
-            vertex.neighbors[neighbor_sn] = graph->adjncy[j];
+            vertex.neighbors.push_back(graph->adjncy[j]);
             /* 将边的权重从图中顶点拷贝到vertex.edgewgt[k++]中 */
-            vertex.edgewgt[neighbor_sn] = graph->fadjwgt[j];
+            vertex.edgewgt.push_back(graph->fadjwgt[j]);
         }
-        /*if (vertex.neighborSize > 0) */gmr->map(vertex, kvs);
+        neighbor_sn = 0;
+        for (int j = graph->prexadj[i]; j < graph->prexadj[i + 1]; j++, neighbor_sn++) {
+            vertex.previd.push_back(graph->preadjncy[j]);
+            vertex.prefwgt.push_back(graph->prefvwgts[j]);
+            vertex.prefewgt.push_back(graph->prefadjwgt[j]);
+        }
+        /* if (vertex.neighborSize > 0) */gmr->map(vertex, kvs);
     }
     recordTick("egraphmap");
 
     /* 由接收缓冲区数据构造一个个顶点(vertex), 再交给map处理 */
     /* 产生的Key/value，只记录本节点的顶点的,采用Bloom Filter验证 */
     recordTick("brecvbuffermap");
-    for (int i = 0 ; i < recvbuffersize; ) {
-        int vid, eid, location, eloc, edgenum = 0;
-        float fvwgt, fewgt;
-        memcpy(&vid, rb + i, sizeof(int));
-        memcpy(&location, rb + (i += sizeof(int)), sizeof(int));
-        memcpy(&fvwgt, rb + (i += sizeof(int)), sizeof(float));
-        memcpy(&edgenum, rb + (i += sizeof(float)), sizeof(int));
-        if(DEBUG) printf(" %d %d %f %d ", vid, location, fvwgt, edgenum);
-        vertex.id = vid;
-        vertex.loc = location;
-        vertex.value = fvwgt;
-        vertex.neighborSize = edgenum;
-        i += sizeof(int);
-        for (int j = 0; j < edgenum; j++, i += sizeof(int)) {
-            memcpy(&eid, rb + i, sizeof(int));
-            if(DEBUG) printf(" %d", eid);
-            vertex.neighbors[j] = eid;
-        }
-        for (int j = 0; j < edgenum; j++, i += sizeof(int)) {
-            memcpy(&eloc, rb + i, sizeof(int));
-            if(DEBUG) printf(" %d", eloc);
-            vertex.neighborsloc[j] = eloc;
-        }
-        for (int j = 0; j < edgenum; j++, i += sizeof(float)) {
-            memcpy(&fewgt, rb + i, sizeof(float));
-            vertex.edgewgt[j] = fewgt;
-            if(DEBUG) printf(" %f", fewgt);
-        }
-        if(DEBUG) printf("\n");
-        /*if (vertex.neighborSize > 0)*/gmr->map(vertex, kvs);
-    }
+//     for (int i = 0 ; i < recvbuffersize; ) {
+//         int vid, eid, location, eloc, edgenum = 0;
+//         float fvwgt, fewgt;
+//         memcpy(&vid, rb + i, sizeof(int));
+//         memcpy(&location, rb + (i += sizeof(int)), sizeof(int));
+//         memcpy(&fvwgt, rb + (i += sizeof(int)), sizeof(float));
+//         memcpy(&edgenum, rb + (i += sizeof(float)), sizeof(int));
+//         if(DEBUG) printf(" %d %d %f %d ", vid, location, fvwgt, edgenum);
+//         vertex.id = vid;
+//         vertex.loc = location;
+//         vertex.value = fvwgt;
+//         vertex.neighborSize = edgenum;
+//         i += sizeof(int);
+//         for (int j = 0; j < edgenum; j++, i += sizeof(int)) {
+//             memcpy(&eid, rb + i, sizeof(int));
+//             if(DEBUG) printf(" %d", eid);
+//             vertex.neighbors[j] = eid;
+//         }
+//         for (int j = 0; j < edgenum; j++, i += sizeof(int)) {
+//             memcpy(&eloc, rb + i, sizeof(int));
+//             if(DEBUG) printf(" %d", eloc);
+//             vertex.neighborsloc[j] = eloc;
+//         }
+//         for (int j = 0; j < edgenum; j++, i += sizeof(float)) {
+//             memcpy(&fewgt, rb + i, sizeof(float));
+//             vertex.edgewgt[j] = fewgt;
+//             if(DEBUG) printf(" %f", fewgt);
+//         }
+//         if(DEBUG) printf("\n");
+//         /*if (vertex.neighborSize > 0)*/gmr->map(vertex, kvs);
+//     }
     recordTick("erecvbuffermap");
 
     /* 对map产生的key/value list进行排序 */
     recordTick("bsort");
     //kvs.sort(KVComp);
-    sort(kvs.begin(), kvs.end(), KVComp);
+//     sort(kvs.begin(), kvs.end(), KVComp);
     recordTick("esort");
 
     recordTick("breduce");
@@ -250,10 +298,10 @@ void printTimeConsume(int rank) {
     float convergence = 100.00;
     if (ntxs > 0) 
         convergence = 1.0 * convergentVertex / ntxs * 100;
-    printf("P-%d, %dth(%-6.2f%%), D:%ef, Time:%f=(%f[excount] + %f[exdata]"
-            "+ %f[comp](%f[map] + %f[sort] + %f[reduce] + %f[update])"
-            " + %f[barr])\n", rank, iterNum, convergence, remainDeviation,
-            timeRecorder["eiteration"] - timeRecorder["bcomputing"],
+    printf("P-%d, %dth(%-6.2f%%), D:%ef, Time:%f=(%f[count] + %f[data]"
+            "+ %f[comp](%f[map] + %f[sort] + %f[red] + %f[update])"
+            " + %f[barr] + %f(updpre))\n", rank, iterNum, convergence,
+            remainDeviation, timeRecorder["eiteration"] - timeRecorder["bcomputing"],
             timeRecorder["eexchangecounts"] - timeRecorder["bexchangecounts"],
             timeRecorder["eexchangedata"] - timeRecorder["bexchangedata"],
             timeRecorder["ecomputing"] - timeRecorder["bcomputing"],
@@ -261,7 +309,8 @@ void printTimeConsume(int rank) {
             timeRecorder["esort"] - timeRecorder["bsort"], 
             timeRecorder["ereduce"] - timeRecorder["breduce"], 
             timeRecorder["eupdategraph"] - timeRecorder["bupdategraph"], 
-            timeRecorder["eiteration"] - timeRecorder["eupdategraph"]);
+            timeRecorder["eiteration"] - timeRecorder["eupdategraph"],
+            timeRecorder["eupdatepre"] - timeRecorder["bupdatepre"]);
 }
 
 int checkfileexist(char *fname) {

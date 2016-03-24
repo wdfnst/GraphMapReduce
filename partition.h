@@ -9,11 +9,9 @@
 #define GRAPH_DEBUG             true 
 #define GRAPH_INFO              true 
 
-/* MAX_PROCESSOR: 最大子图个数 
- * ntxs:          当前进程使用的子图中顶点数
+/* ntxs:          当前进程使用的子图中顶点数
  * nedges:        当前进程使用的子图边条数
  * NODE_STATUS:   顶点状态 */
-const int MAX_PROCESSOR = 256;
 int ntxs = 0;
 int nedges = 0;
 enum NODE_STATUS {active, inactive};
@@ -30,10 +28,25 @@ typedef struct graph_t {
   int32_t *ivwgts;              /*!< The integer vertex weights */
   int32_t *iadjwgt;             /*!< The integer edge weights */
 
+  /* add for new functions */
+  int prenedges;
+  int *prexadj;
+  int *preadjncy;
+  float *prefvwgts;
+  float *prefadjwgt;
+  int *prestatus;
+
   float *fvwgts;
   float *fadjwgt;
   int *status;
 } graph_t;
+
+struct Edge {
+    int vid;
+    int fvid;
+    float fwgt;
+    float fewgt;
+};
 
 unsigned int simple_hash(unsigned int *key, unsigned int n)
 {
@@ -175,7 +188,7 @@ void read_input_file(int myRank, int numProcs, char *fname, graph_t *graph)
   int num, nnbors, ack=0;
   int vGID;
   int i, j, procID;
-  int vals[102400], send_count[2];
+  int vals[102400], send_count[3];
   int *idx;
   unsigned int id;
   FILE *fp;
@@ -205,29 +218,27 @@ void read_input_file(int myRank, int numProcs, char *fname, graph_t *graph)
     if (num != 1) input_file_error(numProcs, count_tag, 1);
 
     /* Allocate arrays to read in entire graph */
-    graph->xadj = (int *)malloc(sizeof(int) * (numGlobalVertices + 1));
-    graph->adjncy = (int *)malloc(sizeof(int) * numGlobalNeighbors);
-    graph->adjloc = (int *)malloc(sizeof(int) * numGlobalNeighbors);
-    graph->ivsizes = (int *)malloc(sizeof(int) * numGlobalVertices);
+    graph->xadj = (int *)calloc(sizeof(int), numGlobalVertices + 1);
+    graph->adjncy = (int *)calloc(sizeof(int), numGlobalNeighbors);
+    graph->adjloc = (int *)calloc(sizeof(int), numGlobalNeighbors);
+    graph->ivsizes = (int *)calloc(sizeof(int), numGlobalVertices);
 
+    int edges = 0;
     graph->xadj[0] = 0;
-
     int old_vid = 1;
-    for (i=0; i < numGlobalVertices; i++){
+    for (i=0; i < numGlobalVertices && edges < numGlobalNeighbors; i++){
       num = get_next_vertex(fp, vals);
 //       printf("get num:%d\n", num);
       if (num == 0) {
         for (j = 1; i < numGlobalVertices; j++, i++) {
             vGID = vals[0] + j;
             nnbors = 0;
-//             printf("==Fill gap:%d 0\n", vGID);
             graph->ivsizes[i] = (int)vGID;
             graph->xadj[i+1] = graph->xadj[i] + nnbors;
         }
         break;
       }
       if (num < 2) input_file_error(numProcs, count_tag, 1);
-
       /* 如果读取的图顶点的id, 与前一个读取的图顶点id不连续, 则需要补足中间不连续部分 */
       if (vals[0] - old_vid > 1) {
         if (vals[0] > numGlobalVertices) {
@@ -238,14 +249,14 @@ void read_input_file(int myRank, int numProcs, char *fname, graph_t *graph)
         for (j = vals[0] - old_vid - 1; j > 0; j--, i++) {
             vGID = vals[0] - j;
             nnbors = 0;
-//             printf("Fill gap:%d 0\n", vGID);
             graph->ivsizes[i] = (int)vGID;
             graph->xadj[i+1] = graph->xadj[i] + nnbors;
         }
       }
 
-      old_vid = vGID = vals[0];
+      old_vid = vGID = vals[0]; // vGID = vals[0];
       nnbors = vals[1];
+      edges += nnbors;
 
       if (num < (nnbors + 2)) input_file_error(numProcs, count_tag, 1);
       graph->ivsizes[i] = (int)vGID;
@@ -256,8 +267,9 @@ void read_input_file(int myRank, int numProcs, char *fname, graph_t *graph)
 
       graph->xadj[i+1] = graph->xadj[i] + nnbors;
     }
+    if (edges != numGlobalNeighbors)
+        input_file_error(numProcs, count_tag, 1);
     printf("成功读取文件, 耗时:%f\n", MPI_Wtime() - readfile_start);
-
     fclose(fp);
 
     /* Assign each vertex to a process using a hash function */
@@ -273,16 +285,28 @@ void read_input_file(int myRank, int numProcs, char *fname, graph_t *graph)
       id = (unsigned int)graph->ivsizes[i];
       procID = simple_hash(&id, numProcs);
       send_graph[procID].nvtxs++;
+      /////////////////////////////////////////////////////
+      for (j = graph->xadj[i]; j < graph->xadj[i + 1]; j++) {
+        unsigned int adjncy = graph->adjncy[j];
+        int procIDofadjncy = simple_hash(&adjncy, numProcs);
+        send_graph[procIDofadjncy].prenedges++;
+      }
+      /////////////////////////////////////////////////////
     }
 
     for (i=0; i < numProcs; i++){
       num = send_graph[i].nvtxs;
-      send_graph[i].ivsizes = (int *)malloc(sizeof(int) * num);
+      send_graph[i].ivsizes = (int *)calloc(sizeof(int), num);
       send_graph[i].xadj = (int *)calloc(sizeof(int) , (num + 1));
+      /////////////////////////////////////////////////////
+//       num = send_graph[i].prenedges;
+//       send_graph[i].preadjncy = (int*)calloc(sizeof(int), num);
+      /////////////////////////////////////////////////////
     }
 
     /* 新增注释: 用来缓存目前为止各个进程已放入的顶点数 */
     idx = (int *)calloc(sizeof(int), numProcs);
+//     int *preadjoffset = (int*)calloc(sizeof(int), numProcs);
 
     for (i=0; i < numGlobalVertices; i++){
 
@@ -294,6 +318,15 @@ void read_input_file(int myRank, int numProcs, char *fname, graph_t *graph)
       send_graph[procID].ivsizes[j] = (int)id;
       send_graph[procID].xadj[j+1] = send_graph[procID].xadj[j] + nnbors;
 
+      /////////////////////////////////////////////////////
+//       for (k = graph->xadj[i]; k < graph->xadj[i + 1]; k++) {
+//         unsigned int adjncy = graph->adjncy[j];
+//         int procIDofadjncy = simple_hash(&adjncy, numProcs);
+//         //TODO: 可取去除他们, 通过第一次数据同步获取这些信息
+//         send_graph[procIDofadjncy].preadjncy[preadjoffset[procIDofadjncy]++] = id;//////EE
+//         send_graph[procIDofadjncy].prexadj[k];//////////////////////EE
+//       }
+      /////////////////////////////////////////////////////
       idx[procID] = j+1;
     }
 
@@ -307,7 +340,6 @@ void read_input_file(int myRank, int numProcs, char *fname, graph_t *graph)
     memset(idx, 0, sizeof(int) * numProcs);
 
     for (i=0; i < numGlobalVertices; i++){
-
       id = (unsigned int)graph->ivsizes[i];
       nnbors = graph->xadj[i+1] - graph->xadj[i];
       procID = simple_hash(&id, numProcs);
@@ -332,16 +364,25 @@ void read_input_file(int myRank, int numProcs, char *fname, graph_t *graph)
     free(graph->adjloc);
 
     *graph = send_graph[0];
-    graph->fvwgts  = (float *)malloc(sizeof(int) * send_graph[0].nvtxs);
-    graph->fadjwgt = (float *)malloc(sizeof(int) * send_graph[0].nedges);
-    graph->status  = (int *)malloc(sizeof(int) * send_graph[0].nvtxs);
+    graph->fvwgts  = (float *)calloc(sizeof(int), send_graph[0].nvtxs);
+    graph->fadjwgt = (float *)calloc(sizeof(int), send_graph[0].nedges);
+    graph->status  = (int *)calloc(sizeof(int), send_graph[0].nvtxs);
+
+    ///////////////////////////////////////////////////////////
+    graph->prexadj = (int *)calloc(sizeof(int), send_graph[0].nvtxs + 1);
+    graph->preadjncy = (int *)calloc(sizeof(int), send_graph[0].prenedges);
+    graph->prefvwgts = (float *)calloc(sizeof(float), send_graph[0].prenedges);
+    graph->prefadjwgt = (float *)calloc(sizeof(float), send_graph[0].prenedges);
+    graph->prestatus = (int *)calloc(sizeof(int), send_graph[0].nvtxs);
+    ///////////////////////////////////////////////////////////
     /* Send other processes their subgraph */
 
     for (i=1; i < numProcs; i++){
       send_count[0] = send_graph[i].nvtxs;
       send_count[1] = send_graph[i].nedges;
+      send_count[2] = send_graph[i].prenedges;
 
-      MPI_Send(send_count, 2, MPI_INT, i, count_tag, MPI_COMM_WORLD);
+      MPI_Send(send_count, 3, MPI_INT, i, count_tag, MPI_COMM_WORLD);
       MPI_Recv(&ack, 1, MPI_INT, i, ack_tag, MPI_COMM_WORLD, &status);
 
       if (send_count[0] > 0){
@@ -361,6 +402,18 @@ void read_input_file(int myRank, int numProcs, char *fname, graph_t *graph)
           MPI_Send(send_graph[i].adjloc, send_count[1], MPI_INT, i, id_tag + 3, MPI_COMM_WORLD);
           free(send_graph[i].adjloc);
         }
+
+        ///////////////////////////////////////////////////////////
+//         if (send_count[2] > 0) {
+           // Send the messages: preadjncy, prefvwgts, prefadjwgt, prestatus 
+//           MPI_Send(send_graph[i].prexadj, send_count[0] + 1, MPI_INT, i,
+//                   id_tag + 4, MPI_COMM_WORLD);
+//           free(send_graph[i].prexadj);
+//           MPI_Send(send_graph[i].preadjncy, send_count[2], MPI_INT, i,
+//                   id_tag + 5, MPI_COMM_WORLD);
+//           free(send_graph[i].preadjncy);
+//         }
+        ///////////////////////////////////////////////////////////
       }
     }
 
@@ -372,7 +425,7 @@ void read_input_file(int myRank, int numProcs, char *fname, graph_t *graph)
     }
   }
   else{
-    MPI_Recv(send_count, 2, MPI_INT, 0, count_tag, MPI_COMM_WORLD, &status);
+    MPI_Recv(send_count, 3, MPI_INT, 0, count_tag, MPI_COMM_WORLD, &status);
 
     if (send_count[0] < 0){
       MPI_Finalize();
@@ -383,19 +436,30 @@ void read_input_file(int myRank, int numProcs, char *fname, graph_t *graph)
 
     graph->nvtxs = send_count[0];
     graph->nedges  = send_count[1];
+    graph->prenedges  = send_count[2];
 
     if (send_count[0] > 0){
 
-      graph->ivsizes = (int *)malloc(sizeof(int) * send_count[0]);
-      graph->xadj = (int *)malloc(sizeof(int) * (send_count[0] + 1));
-      graph->fvwgts  = (float *)malloc(sizeof(int) * send_count[0]);
-      graph->status  = (int *)malloc(sizeof(int) * send_count[0]);
+      graph->ivsizes = (int *)calloc(sizeof(int), send_count[0]);
+      graph->xadj = (int *)calloc(sizeof(int), (send_count[0] + 1));
+      graph->fvwgts  = (float *)calloc(sizeof(int), send_count[0]);
+      graph->status  = (int *)calloc(sizeof(int), send_count[0]);
+      graph->prestatus  = (int *)calloc(sizeof(int), send_count[0]);
+      graph->prexadj = (int *)calloc(sizeof(int), send_count[0] + 1);
 
       if (send_count[1] > 0){
-        graph->adjncy  = (int *)malloc(sizeof(int) * send_count[1]);
-        graph->fadjwgt = (float *)malloc(sizeof(int) * send_count[1]);
-        graph->adjloc = (int *)malloc(sizeof(int) * send_count[1]);
+        graph->adjncy  = (int *)calloc(sizeof(int), send_count[1]);
+        graph->fadjwgt = (float *)calloc(sizeof(int), send_count[1]);
+        graph->adjloc = (int *)calloc(sizeof(int), send_count[1]);
       }
+
+      //////////////////////////////////////////////////////////////
+      if (send_count[2] > 0) {
+          graph->preadjncy = (int *)calloc(sizeof(int), send_count[2]);
+          graph->prefvwgts = (float *)calloc(sizeof(float), send_count[2]);
+          graph->prefadjwgt = (float *)calloc(sizeof(float), send_count[2]);
+      }
+      //////////////////////////////////////////////////////////////
     }
 
     MPI_Send(&ack, 1, MPI_INT, 0, ack_tag, MPI_COMM_WORLD);
@@ -411,6 +475,16 @@ void read_input_file(int myRank, int numProcs, char *fname, graph_t *graph)
                 id_tag + 2, MPI_COMM_WORLD, &status);
         MPI_Recv(graph->adjloc,send_count[1], MPI_INT, 0, id_tag + 3, MPI_COMM_WORLD, &status);
       }
+
+        ///////////////////////////////////////////////////////////
+//         if (send_count[2] > 0) {
+//             MPI_Recv(graph->prexadj, send_count[0] + 1, MPI_INT, 0,
+//                 id_tag + 4, MPI_COMM_WORLD, &status);
+           // receive the messages: preadjncy, prefvwgts, prefadjwgt, prestatus 
+//             MPI_Recv(graph->preadjncy,send_count[2], MPI_INT, 0,
+//                 id_tag + 5, MPI_COMM_WORLD, &status);
+//         }
+        ///////////////////////////////////////////////////////////
     }
 
     /* ok to go on? */
@@ -421,11 +495,16 @@ void read_input_file(int myRank, int numProcs, char *fname, graph_t *graph)
       exit(1);
     }
   }
+    /* 将graph->prestatus设置为inactive, status设置为active */
+  for (i = 0; i < graph->nvtxs; i++) {
+    graph->prestatus[i] = inactive;
+    graph->status[i] = active;
+  }
 //   printf("Graph==>%d:", myRank);
 //   for (i = 0; i < graph->nvtxs; i++) {
 //     printf(" %d-->(", graph->ivsizes[i]);
 //     for (j = graph->xadj[i]; j < graph->xadj[i + 1]; j++) {
-//         if (graph->adjloc[j] > numProcs && myRank == 2);
+//         //if (graph->adjloc[j] > numProcs && myRank == 2);
 //         printf(" %d@%d ", graph->adjncy[j], graph->adjloc[j]);
 //     }
 //     printf(")  ");
@@ -440,86 +519,57 @@ int *getSendBufferSize(const graph_t *graph, const int psize, const int rank,
     /* 先遍历一次需要发送的数据，确定需要和每个节点交换的数据 */
     for (int i=0; i<graph->nvtxs; i++) {
         /* 如果当前顶点vertex为iactive, 则不用发送 */
-        /* TODO: Bugfix - 不将收敛的节点发送, 可能导致不收敛 */
         if (graph->status[i] == inactive) continue;
-        /* 记录当前节点向外发送时，所需要的缓存大小 */
-        int currentVertexSize = 0;
-        // id, loc, weight of vertex
-        currentVertexSize += sizeof(int);
-        currentVertexSize += sizeof(int);
-        currentVertexSize += sizeof(float);
-        // quantity, terminal, location and weight of edges
-        int neighborNum = graph->xadj[i+1] - graph->xadj[i];
-        currentVertexSize += sizeof(int);
-        currentVertexSize += neighborNum * sizeof(int);
-        currentVertexSize += neighborNum * sizeof(int);
-        currentVertexSize += neighborNum * sizeof(float);
 
         /* visited 用于记录当前遍历的顶点是否已经发送给节点adjloc[j] */
-        short visited[MAX_PROCESSOR];
-        memset(visited, 0, MAX_PROCESSOR * sizeof(short));
         for (int j=graph->xadj[i]; j<graph->xadj[i+1]; j++) {
             /* 如果当前顶点的终止顶点为在当前节点, 则不必发送 */
-            if (graph->adjloc[j] == rank) continue;
-            /* 如果当前顶点已经在之前发过给此节点, 则也不用发送 */
-            if (visited[graph->adjloc[j]] == 1) continue;
-            visited[graph->adjloc[j]] = 1;
-            sendcounts[graph->adjloc[j]] += currentVertexSize;
+            //if (graph->adjloc[j] == rank) continue;
+            sendcounts[graph->adjloc[j]]++;
         }
     }
+
+    /* 发送数据格式为: neighbor_i, v.id, v.wgt, v.edge_i.wgt */
     return sendcounts;
 }
 
 /* 将要发送的数据从graph中拷贝到发送缓存sb中 */
-char *getSendbuffer(graph_t *graph, int *sdispls, 
-        int psize, int rank, char *sb) {
+Edge *getSendbuffer(graph_t *graph, int *sdispls, 
+        int psize, int rank, Edge *sb) {
     /* 将要发送顶点拷贝到对应的缓存: 内存拷贝(是否有方法减少拷贝?) */
-    int *offsets = (int*)malloc(psize * sizeof(int));
-    memset(offsets, 0, psize * sizeof(int));
+    int *offsets = (int*)calloc(sizeof(int), psize);
     for (int i = 0; i < graph->nvtxs; i++) {
         /* 如果当前顶点vertex为iactive, 则不用发送 */
-        /* TODO: Bugfix - 不将收敛的节点发送, 可能导致不收敛 */
         if (graph->status[i] == inactive) continue;
-        /* record the size of current vertex */
-        int currentVertexSize = 0;
-        // accumulate the size of id, loc, weight of vertex
-        currentVertexSize += sizeof(int);
-        currentVertexSize += sizeof(int);
-        currentVertexSize += sizeof(float);
-        // accumulate the quantity , terminal, loc and weight of edges
-        int neighborNum = graph->xadj[i+1] - graph->xadj[i];
-        currentVertexSize += sizeof(int);
-        currentVertexSize += neighborNum * sizeof(int);
-        currentVertexSize += neighborNum * sizeof(int);
-        currentVertexSize += neighborNum * sizeof(float);
 
-        /* vertex memory image: (id | location | weight | edgenum 
-         * | edges1-n | locationOfedges1-n | weightOfedges1-n) */
-        char *vertex = (char*)malloc(currentVertexSize * sizeof(char));;
-        memset(vertex, 0, currentVertexSize * sizeof(char));
-        memcpy(vertex, &(graph->ivsizes[i]), sizeof(int));
-        memcpy(vertex + sizeof(int), &rank, sizeof(int));
-        memcpy(vertex + 2 * sizeof(int), &(graph->fvwgts[i]), sizeof(float));
-        memcpy(vertex + 2 * sizeof(int) + sizeof(float), &neighborNum, sizeof(int));
-        memcpy(vertex + 3 * sizeof(int) + sizeof(float), &(graph->adjncy[graph->xadj[i]]),
-                neighborNum * sizeof(int));
-        memcpy(vertex + (3 + neighborNum) * sizeof(int) + sizeof(float), 
-                &(graph->adjloc[graph->xadj[i]]), neighborNum * sizeof(int));
-        memcpy(vertex + (3 + 2 * neighborNum) * sizeof(int) + sizeof(float), 
-                &(graph->fadjwgt[graph->xadj[i]]), neighborNum * sizeof(float));
-
-        /* visited 用于记录当前遍历的顶点是否已经发送给节点adjloc[j]*/
-        short visited[MAX_PROCESSOR];
-        memset(visited, 0, MAX_PROCESSOR * sizeof(short));
+        Edge edge;
         for (int j = graph->xadj[i]; j< graph->xadj[i+1]; j++) {
-            if (graph->adjloc[j] == rank) continue;
-            if (visited[graph->adjloc[j]] == 1) continue;
-            visited[graph->adjloc[j]] = 1;
-            memcpy(sb + sdispls[graph->adjloc[j]] + offsets[graph->adjloc[j]],
-                    vertex, currentVertexSize);
-            offsets[graph->adjloc[j]] += currentVertexSize;
+            //if (graph->adjloc[j] == rank) continue;
+            edge.vid = graph->adjncy[j];
+            edge.fvid = graph->ivsizes[i];
+            edge.fwgt = graph->fvwgts[i];
+            edge.fewgt = graph->fadjwgt[j];
+            sb[sdispls[graph->adjloc[j]] + offsets[graph->adjloc[j]]] = edge;
+            offsets[graph->adjloc[j]]++;
+//             memcpy(sb + sdispls[graph->adjloc[j]] + offsets[graph->adjloc[j]],
+//                     &(graph->adjncy[j]), sizeof(int));
+//             memcpy(sb + sdispls[graph->adjloc[j]] + offsets[graph->adjloc[j]] + sizeof(int),
+//                     &(graph->ivsizes[i]), sizeof(int));
+//             memcpy(sb + sdispls[graph->adjloc[j]] + offsets[graph->adjloc[j]] + 2 * sizeof(int),
+//                     &(graph->fvwgts[i]), sizeof(float));
+//             memcpy(sb + sdispls[graph->adjloc[j]] + offsets[graph->adjloc[j]] + 2 * sizeof(int)
+//                     + sizeof(float), &(graph->fadjwgt[j]), sizeof(float));
+
+//             printf("send:[%d, %d, %f, %f].\n", graph->adjncy[j], graph->ivsizes[i],
+//                     graph->fvwgts[i], graph->fadjwgt[j]);
+//             printf("send:<%d, %d, %f, %f>.\n",
+//             sb + sdispls[graph->adjloc[j]] + offsets[graph->adjloc[j]],
+//             sb + sdispls[graph->adjloc[j]] + offsets[graph->adjloc[j]] + sizeof(int),
+//             sb + sdispls[graph->adjloc[j]] + offsets[graph->adjloc[j]] + 2 * sizeof(int),
+//             sb + sdispls[graph->adjloc[j]] + offsets[graph->adjloc[j]] + 2 * sizeof(int) + 
+//                 sizeof(float));
+//             offsets[graph->adjloc[j]] += (2 * (sizeof(int) + sizeof(float)));
         }
-        if (vertex) free(vertex);
     }
     if (offsets) free(offsets);
     return sb;

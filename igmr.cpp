@@ -21,7 +21,6 @@
 #include <errno.h> 
 #include "mpi.h"
 #include "error.h"
-// #include "graph.h"
 #include "partition.h"
 #include "gmr.h"
 #include "algorithms.h"
@@ -35,10 +34,12 @@ using namespace std;
 int main(int argc, char *argv[]) {
     /* rank, size: MPI进程序号和进程数, sb: 发送缓存, rb: 接收缓存 */
     int rank, size, i, rbsize = 0, sbsize = 0;
-    char *sb = nullptr, *rb = nullptr;
+    Edge *sb = nullptr;
+    Edge *rb = nullptr;
     graph_t graph;
     GMR *gmr = nullptr;
     std::list<KV> reduceResult;
+    char default_graph[256] = "graph/small.graph";
 
     /* 初始化MPI */
     MPI_Init(&argc,&argv);
@@ -79,7 +80,7 @@ int main(int argc, char *argv[]) {
         }
     }
     else
-        read_input_file(rank, size, "graph/small.graph", &graph);
+        read_input_file(rank, size, default_graph, &graph);
 
     printf("Process %d: G(|V|, |E|) = (%d, %d)\n", rank, graph.nvtxs,
             graph.nedges);
@@ -151,25 +152,16 @@ int main(int argc, char *argv[]) {
             recvcounts[i] = allothersendcounts[rank + i * (size + 1)];
         recordTick("eexchangecounts");
 
-        /* 打印出节点接收到的接收缓冲区大小 */
-        if(INFO) {
-            printf("Prcess %d recv size:", rank);
-            for (i = 0; i < size; i++) {
-                printf(" %d\t", recvcounts[i]);
-            }
-            printf("\n");
-        }
-
         /* 申请发送和接收数据的空间 */
         rbsize = accumulate(recvcounts, recvcounts + size, 0);
         sbsize = accumulate(sendcounts, sendcounts + size, 0);
-        totalRecvBytes += rbsize;
-        rb = (char*)malloc(accumulate(recvcounts, recvcounts + size, 0));
+        totalRecvBytes += rbsize * sizeof(Edge);
+        rb = (Edge*)calloc(sizeof(Edge), rbsize);
         if ( !rb ) {
             perror( "can't allocate recv buffer");
             MPI_Abort(MPI_COMM_WORLD,EXIT_FAILURE);
         }
-        sb = (char*)malloc(sbsize * sizeof(char));
+        sb = (Edge*)calloc(sizeof(Edge), sbsize);
         if ( !sb ) {
             perror( "can't allocate send buffer");
             free(rb); MPI_Abort(MPI_COMM_WORLD,EXIT_FAILURE);
@@ -185,15 +177,56 @@ int main(int argc, char *argv[]) {
         if (sbsize > 0) getSendbuffer(&graph, sdispls, size, rank, sb);
         recordTick("egetsendbuffer");
 
+        /* 打印出节点接收到的接收缓冲区大小 */
+        if(INFO) {
+            printf("Prcess %d recv size:", rank);
+            for (i = 0; i < size; i++) {
+                printf(" %d\t", recvcounts[i]);
+            }
+            printf("\nProess %d send vertexs:", rank);
+            if (DEBUG)
+            for (i = 0; i < size; i++) {
+                for (int j = sdispls[i]; j < sdispls[i] + sendcounts[i]; j++) {
+                    Edge edge;
+                    memcpy(&edge, sb + j, sizeof(Edge));
+                    printf("->%d(%d, %d, %f, %f) ", i,edge.vid, edge.fvid, edge.fwgt, edge.fewgt);
+                }
+            }
+        }
+
         /* 调用MPIA_Alltoallv(), 交换数据 */
         recordTick("bexchangedata");
-        MPI_Alltoallv(sb, sendcounts, sdispls, MPI_CHAR, rb, recvcounts,
-                rdispls, MPI_CHAR, MPI_COMM_WORLD);
+        for (int i = 0; i < size; i++)
+            sendcounts[i] *= sizeof(Edge), sdispls[i] *= sizeof(Edge),
+            recvcounts[i] *= sizeof(Edge), rdispls[i] *= sizeof(Edge);
+        MPI_Alltoallv((void*)sb, sendcounts, sdispls, MPI_BYTE,
+                (void*)rb, recvcounts, rdispls, MPI_BYTE, MPI_COMM_WORLD);
         recordTick("eexchangedata");
+
+        /* 将交换的数据更新到树上 */
+        sort(rb, rb + rbsize, edgeComp); 
+        recordTick("bupdatepre");
+        updateGraph(&graph, rb, rbsize, rank/*, size, rdispls*/);
+        recordTick("eupdatepre");
+
+//         printf("Graph==>%d:", rank);
+//         for (i = 0; i < graph.nvtxs; i++) {
+//             printf("(");
+//             for (int k = graph.prexadj[i]; k < graph.prexadj[i + 1]; k++) {
+//                 printf("%d ", graph.preadjncy[k]);
+//             }
+//             printf(")-->");
+//             printf(" %d-->(", graph.ivsizes[i]);
+//             for (int j = graph.xadj[i]; j < graph.xadj[i + 1]; j++) {
+//                     printf(" %d@%d ", graph.adjncy[j], graph.adjloc[j]);
+//             }
+//             printf(")  ");
+//         }
+//         printf("\n");
 
         /*合并其他节点传递过来的顶点，计算并判断是否迭代结束*/
         recordTick("bcomputing");
-        computing(rank, &graph, rb, rbsize, gmr, reduceResult); 
+        computing(rank, &graph, (char*)rb, rbsize, gmr, reduceResult); 
         recordTick("ecomputing");
         
         // 释放rb, sb
@@ -202,7 +235,7 @@ int main(int argc, char *argv[]) {
 
         /* 将最终迭代的结果进行更新到子图上, 并判断迭代是否结束 */
         recordTick("bupdategraph");
-        updateGraph(rank, &graph, reduceResult, gmr->upmode);
+        if (reduceResult.size() > 0) updateGraph(rank, &graph, reduceResult, gmr->upmode);
         reduceResult.clear();
         recordTick("eupdategraph");
 

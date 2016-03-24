@@ -498,7 +498,7 @@ void read_input_file(int myRank, int numProcs, char *fname, graph_t *graph)
     /* 将graph->prestatus设置为inactive, status设置为active */
   for (i = 0; i < graph->nvtxs; i++) {
     graph->prestatus[i] = inactive;
-    graph->status[i] = active;
+    graph->status[i] = inactive;
   }
 //   printf("Graph==>%d:", myRank);
 //   for (i = 0; i < graph->nvtxs; i++) {
@@ -551,24 +551,6 @@ Edge *getSendbuffer(graph_t *graph, int *sdispls,
             edge.fewgt = graph->fadjwgt[j];
             sb[sdispls[graph->adjloc[j]] + offsets[graph->adjloc[j]]] = edge;
             offsets[graph->adjloc[j]]++;
-//             memcpy(sb + sdispls[graph->adjloc[j]] + offsets[graph->adjloc[j]],
-//                     &(graph->adjncy[j]), sizeof(int));
-//             memcpy(sb + sdispls[graph->adjloc[j]] + offsets[graph->adjloc[j]] + sizeof(int),
-//                     &(graph->ivsizes[i]), sizeof(int));
-//             memcpy(sb + sdispls[graph->adjloc[j]] + offsets[graph->adjloc[j]] + 2 * sizeof(int),
-//                     &(graph->fvwgts[i]), sizeof(float));
-//             memcpy(sb + sdispls[graph->adjloc[j]] + offsets[graph->adjloc[j]] + 2 * sizeof(int)
-//                     + sizeof(float), &(graph->fadjwgt[j]), sizeof(float));
-
-//             printf("send:[%d, %d, %f, %f].\n", graph->adjncy[j], graph->ivsizes[i],
-//                     graph->fvwgts[i], graph->fadjwgt[j]);
-//             printf("send:<%d, %d, %f, %f>.\n",
-//             sb + sdispls[graph->adjloc[j]] + offsets[graph->adjloc[j]],
-//             sb + sdispls[graph->adjloc[j]] + offsets[graph->adjloc[j]] + sizeof(int),
-//             sb + sdispls[graph->adjloc[j]] + offsets[graph->adjloc[j]] + 2 * sizeof(int),
-//             sb + sdispls[graph->adjloc[j]] + offsets[graph->adjloc[j]] + 2 * sizeof(int) + 
-//                 sizeof(float));
-//             offsets[graph->adjloc[j]] += (2 * (sizeof(int) + sizeof(float)));
         }
     }
     if (offsets) free(offsets);

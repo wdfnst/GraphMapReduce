@@ -103,7 +103,7 @@ int main(int argc, char *argv[]) {
 
     /* 将子图的顶点个数赋给进程的全局变量 */
     ntxs = graph.nvtxs;
-    if(INFO) printf("%d 节点和边数: %d %zd\n", rank, graph.nvtxs,
+    if(INFO) printf("%d 节点和边数: %d %d\n", rank, graph.nvtxs,
             graph.xadj[graph.nvtxs]);
     if (DEBUG) displayGraph(&graph);
 
@@ -206,7 +206,7 @@ int main(int argc, char *argv[]) {
         /* 将交换的数据更新到树上 */
         sort(rb, rb + rbsize, edgeComp); 
         recordTick("bupdatepre");
-        updateGraph(&graph, rb, rbsize, rank/*, size, rdispls*/);
+        updateGraph(&graph, rb, rbsize, rank);
         recordTick("eupdatepre");
 
 //         printf("Graph==>%d:", rank);

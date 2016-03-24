@@ -29,7 +29,7 @@ long totalMaxMem    = 0;
 float threshold         = 0.0001;
 float remainDeviation   = FLT_MAX;
 int iterNum             = 0;
-int MAX_ITERATION       = 10000;
+int MAX_ITERATION       = 120;
 size_t convergentVertex = 0;
 const size_t MAX_NEIGHBORSIZE = 102400; 
 
@@ -58,7 +58,12 @@ auto KVComp = [](KV kv1, KV kv2) -> bool {
 };
 
 bool edgeComp(Edge e1, Edge e2) {
-    return e1.vid < e2.vid;
+    if (e1.vid < e2.vid)
+        return true;
+    else if (e1.vid == e2.vid) {
+        return e1.fvid < e2.fvid;
+    }
+    return false;
 }
 
 /* 记录当前程序执行到当前位置的MPI_Wtime */
@@ -123,15 +128,18 @@ UpdateMode GMR::upmode = cover;
 void updateGraph(graph_t *graph, Edge *rb, int rbsize, int rank) {
     int i = 0, j = 0, m = 0, n = 0;
     graph->prexadj[0] = 0;
+    graph->prestatus[0] = inactive;
     while (i < graph->nvtxs && j < rbsize) {
         if (graph->ivsizes[i] < rb[j].vid) {
             /* 第一次同步数据之后, 需要将prexadj填充 */
             if (graph->prexadj[i + 1] == 0)
                 graph->prexadj[i + 1] = m;
             i++;
+            /* 先将其设置为inactive, 如果有更新前驱再设置为active */
+            //if (i < graph->nvtxs) graph->prestatus[i] = inactive;
         }
         else if (graph->ivsizes[i] > rb[j].vid) {
-            perror( "接收的前驱数据有误.\n");
+            perror("接收的前驱数据有误.\n");
             MPI_Finalize();
             exit(1);
         }
@@ -178,19 +186,24 @@ void updateGraph(int rank, graph_t *graph, std::list<KV> &reduceResult, UpdateMo
                 if(graph->status[i] == inactive) {
                     graph->status[i] = active;
                     convergentVertex--;
-//                     printf("Process %d @ %d: Inactive-->Active.\n", iter->key, rank);
+//                     printf("Process %d @ %d: Inactive-->Active.%f->%f\n", 
+//                             iter->key, rank, iter->value, graph->fvwgts[i]);
                 }
 //                 else
-//                 printf("Process %d @ %d: Active-->Active.\n", iter->key, rank);
+//                     printf("Process %d @ %d: Active-->Active.%f->%f\n", 
+//                             iter->key, rank, iter->value, graph->fvwgts[i]);
             }
             else {
                 if(graph->status[i] == active) {
                     convergentVertex++;
                     graph->status[i] = inactive;
-//                     printf("Process %d @ %d: Active-->Inactive.\n", iter->key, rank);
+//                     printf("Process %d @ %d: Active-->Inactive.%f->%f\n", 
+//                             iter->key, rank, iter->value, graph->fvwgts[i]);
                 }
-//                 else
-//                     printf("Process %d @ %d: Active-->Active.\n", iter->key, rank);
+                else
+                    if (graph->ivsizes[i] == 9037)
+                        printf("Process %d @ %d: Inactive-->Inactive.%f->%f\n", 
+                                iter->key, rank, iter->value, graph->fvwgts[i]);
             }
             if (upmode == accu) 
                 graph->fvwgts[i] += iter->value;
@@ -213,8 +226,16 @@ void computing(int rank, graph_t *graph, char *rb, int recvbuffersize,
     recordTick("bgraphmap");
     for (int i=0; i<graph->nvtxs; i++) {
         Vertex vertex;
-        /* 判断其前驱是否有过更改 */
-        if (graph->prestatus[i] == inactive) continue;
+        /* 判断其前驱是否有过更改, 第一轮刚收到数据，全部计算 */
+        if (iterNum != 0 && graph->prestatus[i] == inactive) {
+            if (graph->status[i] == active) {
+                graph->status[i] = inactive;
+                convergentVertex++;
+            }
+            continue;
+        }
+        graph->prestatus[i] = inactive;
+
         vertex.id = graph->ivsizes[i];
         vertex.value = graph->fvwgts[i];
         vertex.neighborSize = graph->xadj[i+1] - graph->xadj[i];

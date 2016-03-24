@@ -1,48 +1,4 @@
 /****************************************************
- * 该类用于实现PageRank算法
- * *************************************************/
-class PageRank : public GMR {
-public:
-    /* 根据PageRank算法特点和需要,对图进行初始化 */
-    void initGraph(graph_t *graph) {
-        printf("==========>PageRank<==========\n");
-        for (int i=0; i<graph->nvtxs; i++) {
-            graph->fvwgts[i] = 1.0f;
-            graph->status[i] = active;
-        }
-    }
-
-    /* Map/Reduce编程模型中的Map函数 */
-    void map(Vertex &v, std::vector<KV> &kvs) {
-        if (v.neighborSize == 0)
-            return;
-        float value = v.value / v.neighborSize;
-        for (int i = 0; i < v.neighborSize; i++) {
-            kvs.push_back({v.neighbors[i], value});
-            if(DEBUG) printf("%d %f\n", v.neighbors[i], value);
-        }
-    }
-
-    /* 用于将Map/Reduce计算过程中产生的KV list进行排序 */
-    void sort(std::list<KV> &kvs) { }
-
-    /* Map/Reduce编程模型中的Reduce函数 */
-    KV reduce(std::list<KV> &kvs) {
-        float sum = 0.0;
-        for (auto kv : kvs) {
-            sum += kv.value;
-        }
-        /*Pagerank=a*(p1+p2+…Pm)+(1-a)*1/n，其中m是指向网页j的网页j数，n所有网页数*/
-        sum = 0.5 * sum + (1 - 0.5) / ntxs; 
-        if (DEBUG) printf("reduce result: %d %f\n", kvs.front().key, sum);
-        return {kvs.front().key, sum};
-    }
-
-    /* 输出算法的执行结果 */
-    virtual void printResult(graph_t *graph) { }
-};
-
-/****************************************************
  * 该类用实求解SSSP(单源最短路径)算法
  ***************************************************/
 class SSSP : public GMR {
@@ -54,10 +10,10 @@ public:
         for (int i=0; i<graph->nvtxs; i++) {
             if (graph->ivsizes[i] == startv)  {
                 graph->fvwgts[i] = 0;
+                //graph->status[i] = active;
             }
-            else {
+            else 
                 graph->fvwgts[i] = FLT_MAX;
-            }
             for(int j = graph->xadj[i]; j < graph->xadj[i + 1]; j++)
                 graph->fadjwgt[j] = 1.0f;
             graph->status[i] = active;
@@ -109,6 +65,50 @@ public:
             //if (graph->fvwgts[i] < FLT_MAX)
             printf("path_len(%zd, %d):%f\n", startv, graph->ivsizes[i], graph->fvwgts[i]);
     }
+};
+
+/****************************************************
+ * 该类用于实现PageRank算法
+ * *************************************************/
+class PageRank : public GMR {
+public:
+    /* 根据PageRank算法特点和需要,对图进行初始化 */
+    void initGraph(graph_t *graph) {
+        printf("==========>PageRank<==========\n");
+        for (int i=0; i<graph->nvtxs; i++) {
+            graph->fvwgts[i] = 1.0f;
+            graph->status[i] = active;
+        }
+    }
+
+    /* Map/Reduce编程模型中的Map函数 */
+    void map(Vertex &v, std::vector<KV> &kvs) {
+        if (v.neighborSize == 0)
+            return;
+        float value = v.value / v.neighborSize;
+        for (int i = 0; i < v.neighborSize; i++) {
+            kvs.push_back({v.neighbors[i], value});
+            if(DEBUG) printf("%d %f\n", v.neighbors[i], value);
+        }
+    }
+
+    /* 用于将Map/Reduce计算过程中产生的KV list进行排序 */
+    void sort(std::list<KV> &kvs) { }
+
+    /* Map/Reduce编程模型中的Reduce函数 */
+    KV reduce(std::list<KV> &kvs) {
+        float sum = 0.0;
+        for (auto kv : kvs) {
+            sum += kv.value;
+        }
+        /*Pagerank=a*(p1+p2+…Pm)+(1-a)*1/n，其中m是指向网页j的网页j数，n所有网页数*/
+        sum = 0.5 * sum + (1 - 0.5) / ntxs; 
+        if (DEBUG) printf("reduce result: %d %f\n", kvs.front().key, sum);
+        return {kvs.front().key, sum};
+    }
+
+    /* 输出算法的执行结果 */
+    virtual void printResult(graph_t *graph) { }
 };
 
 /****************************************************

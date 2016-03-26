@@ -85,11 +85,17 @@ public:
     void map(Vertex &v, std::vector<KV> &kvs) {
         if (v.neighborSize == 0)
             return;
-        float value = v.value / v.neighborSize;
-        for (int i = 0; i < v.neighborSize; i++) {
-            kvs.push_back({v.neighbors[i], value});
-            if(DEBUG) printf("%d %f\n", v.neighbors[i], value);
+        float value = 0.0;
+        for (int i = 0; i < v.prenvtxs; i++) {
+            value += (v.prefwgt[i] /  v.prevertexnnbor[i]);
         }
+        kvs.push_back({v.id, value});
+        if(DEBUG) printf("%dth map result: %d-->%f\n", iterNum, v.id, value);
+//         float value = v.value / v.neighborSize;
+//         for (int i = 0; i < v.neighborSize; i++) {
+//             kvs.push_back({v.neighbors[i], value});
+//             if(DEBUG) printf("%d %f\n", v.neighbors[i], value);
+//         }
     }
 
     /* 用于将Map/Reduce计算过程中产生的KV list进行排序 */
@@ -108,7 +114,12 @@ public:
     }
 
     /* 输出算法的执行结果 */
-    virtual void printResult(graph_t *graph) { }
+    virtual void printResult(graph_t *graph) {
+        for (int i = 0; i < graph->nvtxs; i++)
+//             if (graph->nvtxs < 100 || graph->ivsizes[i] % 10000 == 0)
+            //if (graph->fvwgts[i] < FLT_MAX)
+            printf("pr(%zd, %f)\n", graph->ivsizes[i], graph->fvwgts[i]);
+    }
 };
 
 /****************************************************

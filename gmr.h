@@ -75,7 +75,7 @@ void recordTick(std::string tickname) {
 /* 用于业务逻辑计算，而非图的表示 */
 struct Vertex {
     int id, loc, neighborSize, prenvtxs;
-    std::vector<int> neighbors, neighborsloc, previd;
+    std::vector<int> neighbors, neighborsloc, previd, prevertexnnbor;
     std::vector<float> prefwgt, prefewgt, edgewgt;
     float value;
     bool operator==(int key) {
@@ -147,6 +147,7 @@ void updateGraph(graph_t *graph, Edge *rb, int rbsize, int rank) {
             /* 将其他节点传递过来的前驱, 更新到graph的前驱缓存中 */
             for (n = graph->prexadj[i]; n < graph->prexadj[i + 1]; n++) {
                 if(graph->preadjncy[n] == rb[j].fvid) {
+                    graph->prevertexnnbor[n] = rb[j].nnbor;
                     graph->prefvwgts[n] = rb[j].fwgt;
                     graph->prefadjwgt[n] = rb[j].fewgt;
                     break;
@@ -154,6 +155,7 @@ void updateGraph(graph_t *graph, Edge *rb, int rbsize, int rank) {
             }
             /* 如果从其他节点传来的前驱还未在preadjncy中, 则将其加入 */
             if (n >= graph->prexadj[i + 1]) {
+                graph->prevertexnnbor[m] = rb[j].nnbor;
                 graph->preadjncy[m] = rb[j].fvid;
                 graph->prefvwgts[m] = rb[j].fwgt;
                 graph->prefadjwgt[m] = rb[j].fewgt;
@@ -250,7 +252,9 @@ void computing(int rank, graph_t *graph, char *rb, int recvbuffersize,
             vertex.previd.push_back(graph->preadjncy[j]);
             vertex.prefwgt.push_back(graph->prefvwgts[j]);
             vertex.prefewgt.push_back(graph->prefadjwgt[j]);
+            vertex.prevertexnnbor.push_back(graph->prevertexnnbor[j]);
         }
+
         /* if (vertex.neighborSize > 0) */gmr->map(vertex, kvs);
     }
     recordTick("egraphmap");

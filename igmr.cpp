@@ -81,7 +81,7 @@ int main(int argc, char *argv[]) {
         }
     }
     else
-        read_input_file(rank, size, default_graph, &graph, false);
+        read_input_file(rank, size, default_graph, &graph, true);
 
     printf("Process %d: G(|V|, |E|) = (%d, %d)\n", rank, graph.nvtxs,
             graph.nedges);
@@ -190,7 +190,7 @@ int main(int argc, char *argv[]) {
                 for (int j = sdispls[i]; j < sdispls[i] + sendcounts[i]; j++) {
                     Edge edge;
                     memcpy(&edge, sb + j, sizeof(Edge));
-                    printf("->%d(%d, %d, %f, %f) ", i,edge.vid, edge.fvid, edge.fwgt, edge.fewgt);
+                    printf("->%d(%d,%d,%f,%f) ", i,edge.vid, edge.fvid, edge.fwgt, edge.fewgt);
                 }
             }
         }
@@ -203,7 +203,7 @@ int main(int argc, char *argv[]) {
         MPI_Alltoallv((void*)sb, sendcounts, sdispls, MPI_BYTE,
                 (void*)rb, recvcounts, rdispls, MPI_BYTE, MPI_COMM_WORLD);
         recordTick("eexchangedata");
-
+        
         /* 将交换的数据更新到树上 */
         sort(rb, rb + rbsize, edgeComp); 
         recordTick("bupdatepre");

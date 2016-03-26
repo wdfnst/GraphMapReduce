@@ -32,6 +32,7 @@ typedef struct graph_t {
   int prenedges;
   int *prexadj;
   int *preadjncy;
+  int *prevertexnnbor;
   float *prefvwgts;
   float *prefadjwgt;
   int *prestatus;
@@ -48,8 +49,7 @@ struct BareEdge {
         if (from < rhs.from)
             return true;
         else if (from == rhs.from) {
-            if (to < rhs.to)
-                return true;
+            return to < rhs.to;
         }
         return false;
     }
@@ -58,6 +58,7 @@ struct BareEdge {
 struct Edge {
     int vid;
     int fvid;
+    int nnbor;
     float fwgt;
     float fewgt;
 };
@@ -356,6 +357,7 @@ void read_input_file(int myRank, int numProcs, char *fname,
 
     ///////////////////////////////////////////////////////////
     graph->prexadj = (int *)calloc(sizeof(int), send_graph[0].nvtxs + 1);
+    graph->prevertexnnbor = (int *)calloc(sizeof(int), send_graph[0].prenedges);
     graph->preadjncy = (int *)calloc(sizeof(int), send_graph[0].prenedges);
     graph->prefvwgts = (float *)calloc(sizeof(float), send_graph[0].prenedges);
     graph->prefadjwgt = (float *)calloc(sizeof(float), send_graph[0].prenedges);
@@ -442,6 +444,7 @@ void read_input_file(int myRank, int numProcs, char *fname,
       //////////////////////////////////////////////////////////////
       if (send_count[2] > 0) {
           graph->preadjncy = (int *)calloc(sizeof(int), send_count[2]);
+          graph->prevertexnnbor = (int *)calloc(sizeof(int), send_count[2]);
           graph->prefvwgts = (float *)calloc(sizeof(float), send_count[2]);
           graph->prefadjwgt = (float *)calloc(sizeof(float), send_count[2]);
       }
@@ -533,6 +536,7 @@ Edge *getSendbuffer(graph_t *graph, int *sdispls,
             //if (graph->adjloc[j] == rank) continue;
             edge.vid = graph->adjncy[j];
             edge.fvid = graph->ivsizes[i];
+            edge.nnbor = graph->xadj[i + 1] - graph->xadj[i];
             edge.fwgt = graph->fvwgts[i];
             edge.fewgt = graph->fadjwgt[j];
             sb[sdispls[graph->adjloc[j]] + offsets[graph->adjloc[j]]] = edge;

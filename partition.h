@@ -41,6 +41,20 @@ typedef struct graph_t {
   int *status;
 } graph_t;
 
+struct BareEdge {
+    int from;
+    int to;
+    bool operator<(const BareEdge &rhs) const {
+        if (from < rhs.from)
+            return true;
+        else if (from == rhs.from) {
+            if (to < rhs.to)
+                return true;
+        }
+        return false;
+    }
+};
+
 struct Edge {
     int vid;
     int fvid;
@@ -108,48 +122,32 @@ static int get_next_line(FILE *fp, char *buf, int bufsize)
   return strlen(buf);  /* number of characters */
 }
 
-/* Function to find next line of information in input file */
-static int get_next_vertex(FILE *fp, int *val)
+static int get_line_ints(char *buf, int bufsize, int *vals)
 {
-  char buf[512];
-  char *c = buf;
-  int num, cval, i = 0, j = 0, len = 0, bufsize = 512;
+char *c = buf;
+int count=0;
+
   while (1){
-    c = fgets(buf, bufsize, fp);
-    /* end of the file */
-    if (c == NULL) {
-        if (j > 2)
-            val[1] = j - 2;
-        return j;
+    if ( (c-buf) >= bufsize) break;
+
+    while (!(isdigit(*c))){
+      if ((c - buf) >= bufsize) break;
+      c++;
     }
-    
-    len = strlen(c);
-    for (i=0, c=buf; i < len; i++, c++){
-      cval = (int)*c; 
-      if (isspace(cval) == 0) break;
+  
+    if ( (c-buf) >= bufsize) break;
+  
+    vals[count++] = atoi(c);
+  
+    while (isdigit(*c)){
+      if ((c - buf) >= bufsize) break;
+      c++;
     }
-    if (i == len) continue;   /* blank line */
-    if (*c == '#') continue;  /* comment */
-    
-    int from, to;
-    num = sscanf(buf, "%d%*[^0-9]%d", &from, &to);
-    if (num != 2)
-        perror("输入文件格式错误.\n");
-    if (j > 0) {
-        if (from + numbering == val[0])
-            val[j++] = to + numbering;
-        else {
-            fseek(fp, -1 * len, SEEK_CUR);
-            break;
-        }
-    }
-    else {
-        if (from == 0) numbering = 1;
-        val[j++] = from + numbering, val[j++] = 0, val[j++] = to + numbering;
-    }
+  
+    if ( (c-buf) >= bufsize) break;
   }
-  val[1] = j - 2;
-  return j;
+
+  return count;
 }
 
 /* Proc 0 notifies others of error and exits */
@@ -179,16 +177,15 @@ int i, val[2];
 /*
  * Read the graph in the input file and distribute the vertices.
  */
-
-void read_input_file(int myRank, int numProcs, char *fname, graph_t *graph)
+void read_input_file(int myRank, int numProcs, char *fname,
+        graph_t *graph, bool hasnumbers)
 {
   char buf[512];
   int bufsize;
   int numGlobalVertices, numGlobalNeighbors;
   int num, nnbors, ack=0;
-  int vGID;
   int i, j, procID;
-  int vals[102400], send_count[3];
+  int vals[64], send_count[3];
   int *idx;
   unsigned int id;
   FILE *fp;
@@ -197,6 +194,9 @@ void read_input_file(int myRank, int numProcs, char *fname, graph_t *graph)
   graph_t *send_graph;
   double readfile_start = MPI_Wtime();
 
+  std::set<int> vertexset;
+  std::set<BareEdge> edgeset;
+
   if (myRank == 0){
 
     bufsize = 512;
@@ -204,79 +204,65 @@ void read_input_file(int myRank, int numProcs, char *fname, graph_t *graph)
     fp = fopen(fname, "r");
 
     /* Get the number of vertices */
+    if (hasnumbers) {
+        num = get_next_line(fp, buf, bufsize);
+        if (num == 0) input_file_error(numProcs, count_tag, 1);
+        num = sscanf(buf, "%d", &numGlobalVertices);
+        if (num != 1) input_file_error(numProcs, count_tag, 1);
 
-    num = get_next_line(fp, buf, bufsize);
-    if (num == 0) input_file_error(numProcs, count_tag, 1);
-    num = sscanf(buf, "%d", &numGlobalVertices);
-    if (num != 1) input_file_error(numProcs, count_tag, 1);
-
-    /* Get the number of vertex neighbors  */
-
-    num = get_next_line(fp, buf, bufsize);
-    if (num == 0) input_file_error(numProcs, count_tag, 1);
-    num = sscanf(buf, "%d", &numGlobalNeighbors);
-    if (num != 1) input_file_error(numProcs, count_tag, 1);
+        /* Get the number of vertex neighbors  */
+        num = get_next_line(fp, buf, bufsize);
+        if (num == 0) input_file_error(numProcs, count_tag, 1);
+        num = sscanf(buf, "%d", &numGlobalNeighbors);
+        if (num != 1) input_file_error(numProcs, count_tag, 1);
+    }
+    
+    while (get_next_line(fp, buf, bufsize)) {
+        num = get_line_ints(buf, strlen(buf), vals);
+        //printf("%d -> ", vals[0]);
+        vertexset.insert(vals[0]);
+        for (i = 1; i < num; i++) {
+            /* 有可能只有入边没有出边的顶点, 所以需要将所有出边顶点加入 */
+            vertexset.insert(vals[i]);
+            edgeset.insert({vals[0], vals[i]});
+            //printf(" %d ", vals[i]);
+        }
+        //printf("\n");
+    }
+    fclose(fp);
+    if (hasnumbers && (numGlobalVertices != vertexset.size() || 
+                numGlobalNeighbors != edgeset.size())) {
+        printf("读取的顶点数和边数与给定的数据不符:");
+        printf("G(%zd, %zd), readed G(%zd, %zd)\n", numGlobalVertices,
+                numGlobalNeighbors, vertexset.size(), edgeset.size());
+        input_file_error(numProcs, count_tag, 1);
+    }
+    numGlobalVertices = vertexset.size();
+    numGlobalNeighbors = edgeset.size();
+    printf("成功读取文件, 耗时:%f\n", MPI_Wtime() - readfile_start);
 
     /* Allocate arrays to read in entire graph */
     graph->xadj = (int *)calloc(sizeof(int), numGlobalVertices + 1);
     graph->adjncy = (int *)calloc(sizeof(int), numGlobalNeighbors);
     graph->adjloc = (int *)calloc(sizeof(int), numGlobalNeighbors);
     graph->ivsizes = (int *)calloc(sizeof(int), numGlobalVertices);
-
-    int edges = 0;
-    graph->xadj[0] = 0;
-    int old_vid = 1;
-    for (i=0; i < numGlobalVertices && edges < numGlobalNeighbors; i++){
-      num = get_next_vertex(fp, vals);
-//       printf("get num:%d\n", num);
-      if (num == 0) {
-        for (j = 1; i < numGlobalVertices; j++, i++) {
-            vGID = vals[0] + j;
-            nnbors = 0;
-            graph->ivsizes[i] = (int)vGID;
-            graph->xadj[i+1] = graph->xadj[i] + nnbors;
+    i = 0, j = 0;
+    auto edgeset_iter = edgeset.begin();
+    graph->xadj[0] = j;
+    for (auto vertexset_iter = vertexset.begin(); vertexset_iter != vertexset.end();
+            vertexset_iter++) {
+        graph->ivsizes[i] = *vertexset_iter;
+        while (*vertexset_iter == (*edgeset_iter).from) {
+            graph->adjncy[j] = (*edgeset_iter).to;
+            id = (unsigned int)graph->adjncy[j];
+            graph->adjloc[j] = simple_hash(&id, numProcs);
+            edgeset_iter++, j++;
         }
-        break;
-      }
-      if (num < 2) input_file_error(numProcs, count_tag, 1);
-      /* 如果读取的图顶点的id, 与前一个读取的图顶点id不连续, 则需要补足中间不连续部分 */
-      if (vals[0] - old_vid > 1) {
-        if (vals[0] > numGlobalVertices) {
-            perror("读取的图顶点id大于了图的最大顶点数.\n");
-            MPI_Finalize();
-            exit(1);
-        }
-        for (j = vals[0] - old_vid - 1; j > 0; j--, i++) {
-            vGID = vals[0] - j;
-            nnbors = 0;
-            graph->ivsizes[i] = (int)vGID;
-            graph->xadj[i+1] = graph->xadj[i] + nnbors;
-        }
-      }
-
-      old_vid = vGID = vals[0]; // vGID = vals[0];
-      nnbors = vals[1];
-      edges += nnbors;
-
-      if (num < (nnbors + 2)) input_file_error(numProcs, count_tag, 1);
-      graph->ivsizes[i] = (int)vGID;
-
-      for (j=0; j < nnbors; j++){
-        graph->adjncy[graph->xadj[i] + j] = (int)vals[2 + j];
-      }
-
-      graph->xadj[i+1] = graph->xadj[i] + nnbors;
+        graph->xadj[i + 1] = j;
+        i++;
     }
-    if (edges != numGlobalNeighbors)
-        input_file_error(numProcs, count_tag, 1);
-    printf("成功读取文件, 耗时:%f\n", MPI_Wtime() - readfile_start);
-    fclose(fp);
-
-    /* Assign each vertex to a process using a hash function */
-    for (i=0; i < numGlobalNeighbors; i++){
-      id = (unsigned int)graph->adjncy[i];
-      graph->adjloc[i] = simple_hash(&id, numProcs);
-    } 
+    vertexset.clear();
+    edgeset.clear();
 
     /* Create a sub graph for each process */
     send_graph = (graph_t *)calloc(sizeof(graph_t) , numProcs);

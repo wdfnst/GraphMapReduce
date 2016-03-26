@@ -8,7 +8,7 @@ public:
     void initGraph(graph_t *graph) {
         printf("==========>SSSP<==========\n");
         for (int i=0; i<graph->nvtxs; i++) {
-            if (graph->ivsizes[i] == startv)  {
+            if (graph->ivsizes[i] == startv) {
                 graph->fvwgts[i] = 0;
                 //graph->status[i] = active;
             }

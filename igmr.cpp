@@ -5,6 +5,7 @@
 #include <vector>
 #include <list>
 #include <map>
+#include <set>
 #include <bitset>
 #include <iterator>
 #include <algorithm>
@@ -73,14 +74,14 @@ int main(int argc, char *argv[]) {
     
     if (argc > 2) {
         if (checkfileexist(argv[2]))
-            read_input_file(rank, size, argv[2], &graph);
+            read_input_file(rank, size, argv[2], &graph, true);
         else {
             MPI_Finalize();
-            exit(0);
+            exit(1);
         }
     }
     else
-        read_input_file(rank, size, default_graph, &graph);
+        read_input_file(rank, size, default_graph, &graph, false);
 
     printf("Process %d: G(|V|, |E|) = (%d, %d)\n", rank, graph.nvtxs,
             graph.nedges);

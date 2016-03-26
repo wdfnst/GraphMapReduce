@@ -29,7 +29,7 @@ long totalMaxMem    = 0;
 float threshold         = 0.0001;
 float remainDeviation   = FLT_MAX;
 int iterNum             = 0;
-int MAX_ITERATION       = 120;
+int MAX_ITERATION       = 10000;
 size_t convergentVertex = 0;
 const size_t MAX_NEIGHBORSIZE = 102400; 
 
@@ -200,10 +200,9 @@ void updateGraph(int rank, graph_t *graph, std::list<KV> &reduceResult, UpdateMo
 //                     printf("Process %d @ %d: Active-->Inactive.%f->%f\n", 
 //                             iter->key, rank, iter->value, graph->fvwgts[i]);
                 }
-                else
-                    if (graph->ivsizes[i] == 9037)
-                        printf("Process %d @ %d: Inactive-->Inactive.%f->%f\n", 
-                                iter->key, rank, iter->value, graph->fvwgts[i]);
+//                 else
+//                     printf("Process %d @ %d: Inactive-->Inactive.%f->%f\n", 
+//                             iter->key, rank, iter->value, graph->fvwgts[i]);
             }
             if (upmode == accu) 
                 graph->fvwgts[i] += iter->value;
@@ -227,7 +226,7 @@ void computing(int rank, graph_t *graph, char *rb, int recvbuffersize,
     for (int i=0; i<graph->nvtxs; i++) {
         Vertex vertex;
         /* 判断其前驱是否有过更改, 第一轮刚收到数据，全部计算 */
-        if (iterNum != 0 && graph->prestatus[i] == inactive) {
+        if (/*iterNum != 0 && */graph->prestatus[i] == inactive) {
             if (graph->status[i] == active) {
                 graph->status[i] = inactive;
                 convergentVertex++;
